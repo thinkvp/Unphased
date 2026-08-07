@@ -9,8 +9,10 @@ name: Release
 # require Adobe Developer Distribution portal signing, and the CEP panel is
 # installed by junction with PlayerDebugMode rather than as a signed ZXP.
 #
-# The native decode addon is not built here — it is committed under
-# uxp/win/x64/ on purpose. See uxp/native/README.md to rebuild it.
+# Two jobs. build-addon-mac compiles the universal macOS decode addon from
+# source (it is not committed — it cannot be built on a Windows dev machine).
+# release then packages the .ccx on Windows, bundling the pre-committed Windows
+# addon and the macOS artifact together, so one .ccx installs on both.
 
 on:
   push:
@@ -26,7 +28,77 @@ permissions:
   contents: write
 
 jobs:
+  # ── macOS decode addon ───────────────────────────────────────────────────
+  build-addon-mac:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: uxp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
+
+      - name: Install build tools
+        run: brew install nasm pkg-config cmake
+
+      - name: Cache FFmpeg build
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: uxp/ffmpeg-out
+          # Same key as mac-native-ci.yml, so a release reuses the cache that
+          # workflow already warmed rather than rebuilding FFmpeg from scratch.
+          key: ffmpeg-mac-universal-8.1.2-${{ hashFiles('uxp/scripts/build-ffmpeg-mac.sh') }}
+
+      - name: Build FFmpeg (static, universal, audio-only)
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+          tar xf ffmpeg.tar.xz
+          FFMPEG_SRC_DIR="$PWD/ffmpeg-8.1.2" PREFIX_BASE="$PWD/ffmpeg-out" \
+            bash scripts/build-ffmpeg-mac.sh universal
+
+      - name: Build the addon
+        run: |
+          cmake -S native -B native/build \
+            -DFFMPEG_ROOT="$PWD/ffmpeg-out/universal" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build native/build
+
+      - name: Addon is universal and ad-hoc signed
+        run: |
+          addon=native/build/unphased.uxpaddon
+          archs="$(lipo -archs "$addon")"
+          echo "archs: $archs"
+          for want in arm64 x86_64; do
+            case " $archs " in
+              *" $want "*) ;;
+              *) echo "::error::$addon is missing the $want slice (got: $archs)"; exit 1 ;;
+            esac
+          done
+          codesign --verify --verbose "$addon"
+
+      # The universal binary serves both architectures; it goes in both folders
+      # because that is where build-ccx.js looks for them.
+      - name: Stage for both mac architectures
+        run: |
+          mkdir -p mac/x64 mac/arm64
+          cp native/build/unphased.uxpaddon mac/x64/
+          cp native/build/unphased.uxpaddon mac/arm64/
+
+      - name: Upload macOS addon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-addon
+          path: |
+            uxp/mac/x64/unphased.uxpaddon
+            uxp/mac/arm64/unphased.uxpaddon
+          if-no-files-found: error
+
+  # ── Package & publish ────────────────────────────────────────────────────
   release:
+    needs: build-addon-mac
     runs-on: windows-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
@@ -51,12 +123,50 @@ jobs:
           fi
           echo "Releasing $uxp_ver ✓"
 
+      - name: Download the macOS addon
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-addon
+          # upload-artifact@v4 strips the common ancestor (uxp/mac/) from the
+          # entry paths, so the artifact holds x64/... and arm64/.... Extract
+          # into uxp/mac to restore the prefix build-ccx.js expects.
+          path: uxp/mac
+
+      - name: Both platform addons are present
+        shell: bash
+        run: |
+          for f in uxp/mac/x64/unphased.uxpaddon uxp/mac/arm64/unphased.uxpaddon \
+                   uxp/win/x64/unphased.uxpaddon; do
+            test -f "$f" || { echo "::error::$f missing — the .ccx would not install on that platform"; exit 1; }
+          done
+          echo "win + mac addons ✓"
+
       - name: Lint, test, build the .ccx
         working-directory: uxp
         run: |
           npm run lint
           npm test
           npm run build
+
+      # Read the finished package rather than trusting the build log: three
+      # addon entries means it really is cross-platform, not a silently
+      # Windows-only build that would install and then fail to decode on a Mac.
+      - name: The .ccx carries all three addons
+        shell: pwsh
+        working-directory: uxp
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $ccx = (Get-ChildItem dist/*.ccx)[0].FullName
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($ccx)
+          $found = $zip.Entries.FullName | Where-Object { $_ -like '*.uxpaddon' } | Sort-Object
+          $zip.Dispose()
+          $found | ForEach-Object { Write-Host "  $_" }
+          $expected = @('mac/arm64/unphased.uxpaddon', 'mac/x64/unphased.uxpaddon', 'win/x64/unphased.uxpaddon')
+          if (Compare-Object $found $expected) {
+            Write-Host "::error::.ccx addon entries do not match win/x64 + mac/x64 + mac/arm64"
+            exit 1
+          }
+          Write-Host "cross-platform .ccx ✓"
 
       - name: Engine tests
         working-directory: engine

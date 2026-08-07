@@ -10,6 +10,12 @@ ARCH="${1:-universal}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Must match CMAKE_OSX_DEPLOYMENT_TARGET in native/CMakeLists.txt. If the libs
+# are built for a newer floor than the addon that links them, the link succeeds
+# and the loader fails on older systems — the worst possible place to find out.
+MACOS_MIN="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
+export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN"
+
 # FFmpeg source: try env var, then look for a local dir, then download.
 FFMPEG_VER="8.1.2"
 FFMPEG_SRC="${FFMPEG_SRC_DIR:-}"
@@ -75,8 +81,8 @@ build_arch() {
     --prefix="$prefix" \
     --arch="$arch" \
     --cc=clang \
-    --extra-cflags="-arch $arch" \
-    --extra-ldflags="-arch $arch" \
+    --extra-cflags="-arch $arch -mmacosx-version-min=$MACOS_MIN" \
+    --extra-ldflags="-arch $arch -mmacosx-version-min=$MACOS_MIN" \
     $x86_flag \
     "${COMMON_FLAGS[@]}"
 

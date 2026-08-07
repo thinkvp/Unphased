@@ -15,9 +15,25 @@
 #     -DFFMPEG_ROOT=./ffmpeg-out/universal \
 #     -DCMAKE_BUILD_TYPE=Release
 #   cmake --build native/build
-#   # Output: native/build/unphased.uxpaddon  -> copy to uxp/mac/{x64,arm64}/
+#   # Output: native/build/unphased.uxpaddon (universal) -> uxp/mac/{x64,arm64}/
 
 cmake_minimum_required(VERSION 3.20)
+
+# Both of these must be set BEFORE project(), or the compiler checks run against
+# the host defaults and the settings are ignored for the real build.
+#
+# The FFmpeg libs from build-ffmpeg-mac.sh are lipo'd universal, but that does
+# NOT make the addon universal — without this, CMake builds for the host arch
+# alone, and an arm64-only .uxpaddon copied into mac/x64/ fails to load on an
+# Intel Mac with nothing but a generic "addon not supported". The release
+# workflow re-checks the built file with `lipo -archs`.
+if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
+  set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures" FORCE)
+endif()
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
 project(unphased_addon_mac LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)

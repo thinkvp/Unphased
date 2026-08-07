@@ -12,9 +12,14 @@ Thumbs.db
 .vscode/
 .idea/
 
-# UXP build outputs. The native addon itself (uxp/win/x64/*.uxpaddon) IS
+# UXP build outputs. The Windows native addon (uxp/win/x64/*.uxpaddon) IS
 # committed — it is the artifact build-ccx.js packages, and rebuilding a static
 # FFmpeg on every CI run for a file that changes twice a year is not worth it.
+#
+# The macOS addon is NOT committed: it cannot be built on the Windows dev
+# machine, so CI builds it from source on every release and the .ccx assembles
+# all three platform slices there. Anything under uxp/mac/ is a local build.
+uxp/mac/
 uxp/dist/
 uxp/native/build/
 uxp/native/uxp/win/build/

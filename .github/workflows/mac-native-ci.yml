@@ -1,0 +1,118 @@
+name: macOS native CI
+
+# Builds the macOS decode addon from source and — the part Windows CI cannot do
+# — builds native/build/decode_smoke and runs the UXP suite against it, so the
+# five decode-core tests that verify sample-accurate window trimming and channel
+# selection actually execute somewhere.
+#
+# The FFmpeg build is the expensive part (~15-25 min cold). It is cached on the
+# hash of the build script, so it only pays that once per change to the script.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'uxp/native/**'
+      - 'uxp/scripts/build-ffmpeg-mac.sh'
+      - 'uxp/tests/decodeCore.test.js'
+      - '.github/workflows/mac-native-ci.yml'
+  pull_request:
+    paths:
+      - 'uxp/native/**'
+      - 'uxp/scripts/build-ffmpeg-mac.sh'
+      - 'uxp/tests/decodeCore.test.js'
+      - '.github/workflows/mac-native-ci.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: uxp
+
+jobs:
+  build-and-verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install build tools
+        run: brew install nasm pkg-config cmake
+
+      - name: Cache FFmpeg build
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: uxp/ffmpeg-out
+          key: ffmpeg-mac-universal-8.1.2-${{ hashFiles('uxp/scripts/build-ffmpeg-mac.sh') }}
+
+      - name: Build FFmpeg (static, universal, audio-only)
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+          tar xf ffmpeg.tar.xz
+          FFMPEG_SRC_DIR="$PWD/ffmpeg-8.1.2" PREFIX_BASE="$PWD/ffmpeg-out" \
+            bash scripts/build-ffmpeg-mac.sh universal
+
+      - name: Build the addon
+        run: |
+          cmake -S native -B native/build \
+            -DFFMPEG_ROOT="$PWD/ffmpeg-out/universal" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build native/build
+
+      # An arm64-only addon copied into mac/x64/ loads on nothing but Apple
+      # Silicon and reports a generic failure on Intel. Check, do not assume.
+      - name: Addon is universal and ad-hoc signed
+        run: |
+          addon=native/build/unphased.uxpaddon
+          archs="$(lipo -archs "$addon")"
+          echo "archs: $archs"
+          for want in arm64 x86_64; do
+            case " $archs " in
+              *" $want "*) ;;
+              *) echo "::error::$addon is missing the $want slice (got: $archs)"; exit 1 ;;
+            esac
+          done
+          codesign --verify --verbose "$addon"
+
+      # The whole point of this job: the JS suite's decode-core tests skip
+      # themselves without this binary, and Windows CI cannot build it (the
+      # static FFmpeg libs it needs are not committed).
+      - name: Build the decode_smoke harness
+        run: |
+          clang++ -std=c++17 -O2 \
+            -I ffmpeg-out/universal/include -I native/src \
+            native/tools/decode_smoke.cpp native/src/unphased_decode.cpp \
+            -L ffmpeg-out/universal/lib \
+            -lavformat -lavcodec -lswresample -lavutil \
+            -liconv -lz -lbz2 \
+            -framework CoreFoundation -framework CoreVideo -framework CoreMedia \
+            -framework CoreImage -framework Security -framework AudioToolbox \
+            -framework VideoToolbox -framework Metal -framework AppKit \
+            -framework AVFoundation \
+            -o native/build/decode_smoke
+          native/build/decode_smoke --probe ../testmedia/boom.wav
+
+      - name: Full UXP suite, nothing skipped
+        run: |
+          set -o pipefail
+          npm run lint
+          npm test 2>&1 | tee out.txt
+          skipped="$(grep -oE '^. skipped [0-9]+' out.txt | grep -oE '[0-9]+' | tail -1)"
+          rm -f out.txt
+          if [ "${skipped:-0}" != "0" ]; then
+            echo "::error::$skipped test(s) skipped — decode_smoke is built here, so nothing should skip."
+            exit 1
+          fi
+
+      # Proves the .ccx would carry all three platform addons, without
+      # publishing anything.
+      - name: Package check (cross-platform .ccx)
+        run: |
+          mkdir -p mac/x64 mac/arm64
+          cp native/build/unphased.uxpaddon mac/x64/
+          cp native/build/unphased.uxpaddon mac/arm64/
+          npm run build

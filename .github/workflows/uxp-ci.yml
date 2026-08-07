@@ -1,8 +1,14 @@
 name: UXP CI
 
-# Windows, because the committed native decode addon is a Windows x64 binary and
-# uxp/tests/decodeCore.test.js loads it. On any other platform those tests skip
-# and the decoder goes unverified.
+# Windows, because that is the only platform the UXP plugin ships for and the
+# committed native addon is a Windows x64 binary — `npm run build` has to be
+# able to stage it into the .ccx.
+#
+# Not covered here: uxp/tests/decodeCore.test.js, the bit-exactness checks on
+# the native decoder. They drive native/build/decode_smoke, which needs the
+# static FFmpeg libs under native/third_party/ — deliberately not committed —
+# so those five tests skip in CI and must be run locally after building the
+# addon. See uxp/native/README.md.
 
 on:
   push:

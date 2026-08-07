@@ -46,5 +46,20 @@ jobs:
 
       # engine/test/panel.test.js asserts on cep/ markup and host.jsx, so this
       # job is the CEP extension's test suite too.
+      #
+      # UNPHASED_FFMPEG must be set: the suites default to the Windows install
+      # path (C:\ffmpeg\bin\ffmpeg.exe) and silently skip when it is absent —
+      # seven of the eighty-nine tests, including every job-protocol e2e.
+      # A skip here is a silent coverage hole, not a pass: fail on one.
       - name: Unit tests
-        run: npm test
+        env:
+          UNPHASED_FFMPEG: /usr/bin/ffmpeg
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee out.txt
+          skipped="$(grep -oP '^. skipped \K\d+' out.txt | tail -1)"
+          rm -f out.txt
+          if [ "${skipped:-0}" != "0" ]; then
+            echo "::error::$skipped test(s) skipped — ffmpeg is installed here, so nothing should skip."
+            exit 1
+          fi

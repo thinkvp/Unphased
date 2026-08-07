@@ -42,8 +42,20 @@ cd uxp && npm run lint && npm test   # 31 tests — the UXP plugin
 
 **Node 22 or 24** to run the suites — `node --test "glob"` only expands its own
 globs from Node 22 on. (The CEP panel itself still only needs system Node ≥ 18
-at runtime.) Engine tests that need `ffmpeg` on PATH skip themselves when it is
-absent; CI installs it so they run there.
+at runtime.)
+
+Two sets of tests skip themselves rather than fail when their dependency is
+missing. Both are worth un-skipping before you trust a green run:
+
+| Skipped when | Tests | To run them |
+| --- | --- | --- |
+| No ffmpeg | 7 engine tests, incl. every job-protocol e2e | Install ffmpeg at `C:\ffmpeg\bin\ffmpeg.exe`, or set `UNPHASED_FFMPEG` to its path |
+| No native harness | 5 UXP decode-core tests | Build `native/build/decode_smoke` — see [`uxp/native/README.md`](uxp/native/README.md) |
+
+CI installs ffmpeg and **fails the engine job if anything skips**. It cannot
+build the native harness (the static FFmpeg libs under `uxp/native/third_party/`
+are not committed), so the decode-core tests are the one thing green CI does not
+cover — run them locally when you touch the decoder.
 
 If a change touches the DSP, say in the PR what it does to **null depth** on the
 `testmedia/` fixtures — that number is the point of the whole project, and

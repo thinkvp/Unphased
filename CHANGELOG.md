@@ -10,6 +10,30 @@ fails the build if they disagree.
 
 ## [Unreleased]
 
+### Added
+
+- **macOS support for the UXP plugin (beta).** The `.ccx` now carries a
+  universal (Apple Silicon + Intel) decode addon alongside the Windows one, all
+  three built into one package. CI builds the addon from source on every change
+  under `uxp/native/`, checks both architecture slices are present, and runs the
+  decode-core tests against it.
+- The five decode-core tests — sample-accurate window trimming and per-channel
+  selection — now run in CI on macOS. They had never executed anywhere
+  automated, because the harness they drive cannot be built on the Windows
+  runner.
+
+### Fixed
+
+- **The macOS addon was never actually universal.** `build-ffmpeg-mac.sh` lipo'd
+  the FFmpeg static libs for both architectures, but `native/CMakeLists.txt`
+  never set `CMAKE_OSX_ARCHITECTURES`, so the addon linking them was built for
+  the host architecture alone — and `native/README.md` then instructed you to
+  copy that single-slice binary into both `mac/x64/` and `mac/arm64/`. It would
+  have failed to load on the other architecture with only a generic "addon is
+  not supported". Both build paths now verify with `lipo -archs`.
+- The FFmpeg libs and the addon now pin the same macOS deployment target
+  (11.0), so the libs cannot be built for a newer floor than the addon.
+
 ### Changed
 
 - Documentation brought in line with the selection-driven panel: the README's

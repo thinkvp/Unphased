@@ -52,10 +52,24 @@ missing. Both are worth un-skipping before you trust a green run:
 | No ffmpeg | 7 engine tests, incl. every job-protocol e2e | Install ffmpeg at `C:\ffmpeg\bin\ffmpeg.exe`, or set `UNPHASED_FFMPEG` to its path |
 | No native harness | 5 UXP decode-core tests | Build `native/build/decode_smoke` — see [`uxp/native/README.md`](uxp/native/README.md) |
 
-CI installs ffmpeg and **fails the engine job if anything skips**. It cannot
-build the native harness (the static FFmpeg libs under `uxp/native/third_party/`
-are not committed), so the decode-core tests are the one thing green CI does not
-cover — run them locally when you touch the decoder.
+Both are covered in CI, and **every job fails on a non-zero skip count** — a
+skipped test reads as green otherwise, which is the whole problem with them.
+Engine CI installs ffmpeg; macOS native CI builds the decode harness from source
+(Windows CI can't, since the static FFmpeg libs under `uxp/native/third_party/`
+are not committed). So the decode core is verified on macOS only — build the
+harness locally on Windows when you change it.
+
+## The three CI workflows
+
+| Workflow | Runs on | What only it can prove |
+| --- | --- | --- |
+| `engine-ci.yml` | Linux, Node 22/24 | The DSP, and the CEP panel's static checks, with ffmpeg present |
+| `uxp-ci.yml` | Windows, Node 22/24 | The engine transpile is not stale, and the `.ccx` packages |
+| `mac-native-ci.yml` | macOS | The native decoder compiles, is universal, and decodes bit-exactly |
+
+The macOS job builds a static FFmpeg, which takes 15–25 minutes cold. It is
+cached on the hash of `uxp/scripts/build-ffmpeg-mac.sh` and only runs when
+something under `uxp/native/` changes, so most pull requests never pay for it.
 
 If a change touches the DSP, say in the PR what it does to **null depth** on the
 `testmedia/` fixtures — that number is the point of the whole project, and

@@ -17,7 +17,7 @@ Unphased ships as two plugins, built for different Premiere generations:
 | | [`uxp/`](uxp/) — UXP plugin | [`cep/`](cep/) — CEP extension |
 |---|---|---|
 | **Premiere Pro** | 26.0+ | 24, 25, 26+ |
-| **OS** | Windows (macOS planned) | Windows |
+| **OS** | Windows, macOS † | Windows |
 | **ffmpeg** | Bundled — no install needed | System install needed |
 | **Node.js** | Not needed | System Node 18+ needed |
 | **Install** | Download `.ccx`, double-click | Junction the folder, restart Premiere |
@@ -27,6 +27,13 @@ Unphased ships as two plugins, built for different Premiere generations:
   headed.
 - **On an older Premiere (24/25):** use the **CEP** version. UXP hybrid plugins
   (the kind Unphased needs for its bundled FFmpeg decoder) require Premiere 26+.
+
+† **macOS is built and tested, but not yet confirmed in Premiere.** The `.ccx`
+carries a universal (Apple Silicon + Intel) decode addon, and CI builds it from
+source and verifies it decodes bit-exactly against the test fixtures on every
+change. What no automated check can cover is the panel actually running in
+Premiere on a Mac — nobody has done that yet. Treat the macOS build as a beta
+and report what you find.
 
 Both run the **same DSP engine** and produce the same numbers; they differ only
 in how they reach the host and how they decode audio.

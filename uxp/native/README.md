@@ -92,6 +92,8 @@ Run it from a Developer Command Prompt (or after `vcvars64.bat`).
 
 ## Building the addon (macOS)
 
+Run from `uxp/`:
+
 ```bash
 curl -fsSL -o ffmpeg.tar.xz https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
 tar xf ffmpeg.tar.xz
@@ -99,12 +101,45 @@ FFMPEG_SRC_DIR="$PWD/ffmpeg-8.1.2" PREFIX_BASE="$PWD/ffmpeg-out" \
   bash scripts/build-ffmpeg-mac.sh universal
 cmake -S native -B native/build -DFFMPEG_ROOT="$PWD/ffmpeg-out/universal" -DCMAKE_BUILD_TYPE=Release
 cmake --build native/build
+lipo -archs native/build/unphased.uxpaddon    # must print: x86_64 arm64
 cp native/build/unphased.uxpaddon mac/x64/
 cp native/build/unphased.uxpaddon mac/arm64/
 ```
 
-The universal binary covers both architectures; it goes in both folders because
-that is where `build-ccx.js` looks.
+The output is a universal binary, so the same file serves both architectures; it
+goes in both folders because that is where `build-ccx.js` looks.
+
+**Check the `lipo` line rather than assuming.** Building universal takes two
+things, and having only one of them fails quietly: `build-ffmpeg-mac.sh universal`
+lipo's the *FFmpeg libs*, and `CMAKE_OSX_ARCHITECTURES` makes the *addon* that
+links them universal too. `CMakeLists.txt` now defaults that to `arm64;x86_64`
+(with a 11.0 deployment target matching the one the FFmpeg build pins), but a
+stale `native/build/` cache or an explicit `-DCMAKE_OSX_ARCHITECTURES` on the
+command line will override it. A single-slice addon copied into both folders
+installs happily and then fails to load on the other architecture, reporting
+only a generic "addon is not supported". `.github/workflows/mac-native-ci.yml`
+and the release workflow both re-check with `lipo -archs`.
+
+Unlike the Windows addon, the macOS one is **not committed** — it cannot be
+built on the Windows dev machine, so `uxp/mac/` is gitignored and CI builds it
+from source for every release.
+
+### The decode harness on macOS
+
+`tools/decode_smoke.cpp` builds here too, which is how CI runs the decode-core
+tests that skip on Windows:
+
+```bash
+clang++ -std=c++17 -O2 \
+  -I ffmpeg-out/universal/include -I native/src \
+  native/tools/decode_smoke.cpp native/src/unphased_decode.cpp \
+  -L ffmpeg-out/universal/lib -lavformat -lavcodec -lswresample -lavutil \
+  -liconv -lz -lbz2 \
+  -framework CoreFoundation -framework CoreVideo -framework CoreMedia \
+  -framework CoreImage -framework Security -framework AudioToolbox \
+  -framework VideoToolbox -framework Metal -framework AppKit -framework AVFoundation \
+  -o native/build/decode_smoke
+```
 
 ## Licensing
 

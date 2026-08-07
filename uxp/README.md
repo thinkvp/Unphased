@@ -23,13 +23,13 @@ a live Premiere 26 session** — that is the remaining verification step.
 | Area | State |
 | --- | --- |
 | Shared DSP (`js/engine/`) | Generated from `../engine/src` by `scripts/build-engine.js`; exports and numbers checked against the ESM source |
-| Native FFmpeg addon | Built for Windows x64, self-contained (imports only `bcrypt`/`user32`/`kernel32`); decode verified bit-exact, incl. AAC frame-boundary trimming and per-channel selection |
+| Native FFmpeg addon | Windows x64 committed and self-contained (imports only `bcrypt`/`user32`/`kernel32`); macOS universal (arm64 + x86_64) built from source by CI. Decode verified bit-exact on both, incl. AAC frame-boundary trimming and per-channel selection |
 | Decode layer (`js/audio.js`) | Padding, cancel checks and UI yields covered by tests |
 | Runner (`js/runner.js`) | End-to-end offline: mono, stereo preservation, failure handling |
 | Host ops (`js/premiere.js`) | Written against the documented UXP API — **needs live verification** |
 | UI (`js/main.js`, `index.html`) | Ported from the CEP panel; DOM wiring checked statically |
-| Packaging | `npm run build` → `dist/Unphased-UXP-<version>.ccx` |
-| macOS | Build files present (`native/CMakeLists.txt`); no CI job yet |
+| Packaging | `npm run build` → `dist/Unphased-UXP-<version>.ccx`, one package carrying all three platform addons |
+| macOS | Addon builds universal and passes the decode-core tests in CI (`.github/workflows/mac-native-ci.yml`); **the panel has never been run in Premiere on a Mac** |
 
 ## Architecture (4 layers)
 
@@ -89,10 +89,14 @@ Both plugins run the same DSP and produce the same numbers. What differs:
 
 ## Install (users)
 
-**Requires Premiere Pro 26.0+ on Windows (x64).** The bundled FFmpeg decoder is a
-UXP hybrid addon; Premiere 25.x loads the panel and then reports "Addon is not
-supported", so 26.0 is the real floor. On older Premiere versions, use the
-[CEP version](../cep/README.md).
+**Requires Premiere Pro 26.0+**, on Windows x64 or macOS (Apple Silicon or
+Intel — the addon is universal). The bundled FFmpeg decoder is a UXP hybrid
+addon; Premiere 25.x loads the panel and then reports "Addon is not supported",
+so 26.0 is the real floor. On older Premiere versions, use the
+[CEP version](../cep/README.md), which is Windows-only.
+
+The macOS build is a **beta**: CI proves the decoder compiles universal and
+decodes bit-exactly, but the panel has not been run in Premiere on a Mac.
 
 1. Download `Unphased-UXP-<version>.ccx` from the
    [Releases page](https://github.com/thinkvp/Unphased/releases).

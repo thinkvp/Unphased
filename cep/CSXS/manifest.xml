@@ -1,9 +1,9 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<ExtensionManifest ExtensionBundleId="com.unphased.panel" ExtensionBundleVersion="0.2.0"
+<ExtensionManifest ExtensionBundleId="com.unphased.panel" ExtensionBundleVersion="1.0.0"
   ExtensionBundleName="Unphased" Version="11.0"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.unphased.panel" Version="0.2.0" />
+    <Extension Id="com.unphased.panel" Version="1.0.0" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>

@@ -126,7 +126,7 @@ const ping = wrap(async function () {
     try { seq = project ? await val(project.getActiveSequence()) : null; } catch (e) { /* none open */ }
     return {
         ok: true,
-        version: "0.2.0",
+        version: "1.0.0",
         appVersion: (ppro.version || (ppro.Constants && ppro.Constants.version) || "UXP"),
         project: project ? String(await val(project.name)) : null,
         hasActiveSequence: !!seq

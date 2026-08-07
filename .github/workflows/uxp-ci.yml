@@ -1,0 +1,74 @@
+name: UXP CI
+
+# Windows, because the committed native decode addon is a Windows x64 binary and
+# uxp/tests/decodeCore.test.js loads it. On any other platform those tests skip
+# and the decoder goes unverified.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'uxp/**'
+      - 'engine/src/**'
+      - 'cep/js/pairing.js'
+      - 'testmedia/**'
+      - '.github/workflows/uxp-ci.yml'
+  pull_request:
+    paths:
+      - 'uxp/**'
+      - 'engine/src/**'
+      - 'cep/js/pairing.js'
+      - 'testmedia/**'
+      - '.github/workflows/uxp-ci.yml'
+
+defaults:
+  run:
+    working-directory: uxp
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # Regenerates js/engine/* and js/pairing.js from the shared source and
+      # fails if the committed copies have drifted, then parse-gates every file.
+      - name: Lint (engine-transpile drift + syntax)
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Native addon is present and committed
+        shell: bash
+        run: |
+          test -f win/x64/unphased.uxpaddon || {
+            echo "uxp/win/x64/unphased.uxpaddon is missing — it is committed on purpose."
+            exit 1
+          }
+          echo "native addon ✓"
+
+      - name: CEP <-> UXP version sync
+        shell: bash
+        run: |
+          uxp_ver="$(node -p "require('./manifest.json').version")"
+          cep_ver="$(tr -d '[:space:]' < ../cep/VERSION)"
+          pkg_ver="$(node -p "require('./package.json').version")"
+          if [ "$uxp_ver" != "$cep_ver" ] || [ "$uxp_ver" != "$pkg_ver" ]; then
+            echo "Version mismatch — manifest.json=$uxp_ver package.json=$pkg_ver cep/VERSION=$cep_ver"
+            echo "Bump them together: cd uxp && node scripts/set-version.js <version> --with-cep"
+            exit 1
+          fi
+          echo "UXP & CEP both at $uxp_ver ✓"
+
+      - name: Package check (.ccx builds)
+        run: npm run build

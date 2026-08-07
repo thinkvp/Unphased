@@ -1,0 +1,14 @@
+{
+  "name": "unphased-uxp",
+  "version": "0.2.0",
+  "description": "Dynamic audio alignment for Premiere Pro (UXP plugin with a bundled FFmpeg native addon).",
+  "private": true,
+  "scripts": {
+    "build:engine": "node scripts/build-engine.js",
+    "lint": "node scripts/build-engine.js --check && node scripts/check-syntax.js",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "build": "node scripts/build-ccx.js",
+    "version:set": "node scripts/set-version.js"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,757 @@
+/* Unphased (UXP) — panel.css
+   The CEP panel's stylesheet, adapted to what UXP's renderer actually
+   implements. Same variables, same rhythm, same cyan accent, so the two
+   plugins read as one product.
+
+   Differences from cep/css/panel.css, and why:
+     - .btn replaces the `button` element selector. UXP's native <button>
+       widget ignores author backgrounds, so every action is a <div class="btn">
+       and `.is-disabled` replaces the :disabled pseudo-class.
+     - .pill / .seg-opt carry an .is-on class instead of relying on
+       `input:checked + span`. No checkbox/radio elements are used at all.
+     - The instructions overlay uses position:absolute + display toggling
+       rather than a transform transition (the Syncitol-proven approach).
+     - No `position: sticky` table header, no `inset` shorthand, no vh units.
+
+   SPACING, THE IMPORTANT ONE: **UXP does not honour flex `gap`** — in row or
+   column layouts. Every `gap` below is inert; the margins beside them do the
+   actual work, mostly as `> * + *` adjacent-sibling rules (the `>`, `+` and `*`
+   selectors all work). The `gap` declarations are kept so the intent is legible
+   and so the layout improves for free if UXP ever implements it. If you add a
+   flex container here, give it margins too or its children will sit flush. */
+
+/* Fonts are bundled locally so the panel renders identically offline — and in
+   UXP there is no network to fall back to anyway. */
+@font-face {
+    font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400;
+    src: url('../fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 500;
+    src: url('../fonts/ibm-plex-sans-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600;
+    src: url('../fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400;
+    src: url('../fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500;
+    src: url('../fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600;
+    src: url('../fonts/ibm-plex-mono-latin-600-normal.woff2') format('woff2');
+}
+
+/* ── Variables ─────────────────────────────────────────────────────────────── */
+:root {
+    --bg:         #171a1c;
+    --bg-panel:   #1e2225;
+    --bg-card:    #262c30;
+    --bg-input:   #14171a;
+    --border:     #364046;
+    --border-lit: #52646e;
+    --accent:     #3ac7d9;
+    --accent-dim: #1f7d8c;
+    --accent-glow:#3ac7d955;
+    --green:      #4af79a;
+    --yellow:     #f7c94a;
+    --red:        #f75a5a;
+    --text-hi:    #e6eef0;
+    --text-mid:   #a4b4ba;
+    --text-lo:    #7f9199;
+    --mono:       'IBM Plex Mono', monospace;
+    --sans:       'IBM Plex Sans', sans-serif;
+    --radius:     6px;
+}
+
+/* ── Reset / Base ───────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Fill the panel and let only the middle region scroll. Header and footer stay
+   put; keeping the scroll on `.body` rather than the document means the
+   instructions overlay — absolutely positioned to `body` — covers the viewport
+   however far the content has been scrolled. */
+html, body { height: 100%; }
+
+body {
+    background-color: var(--bg);
+    color: var(--text-hi);
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.5;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.header, .footer { flex-shrink: 0; }
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+.header {
+    background-color: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.header-icon {
+    width: 28px;
+    height: 28px;
+    background-color: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-right: 10px; /* UXP ignores the row's flex gap */
+}
+.header-icon svg { display: block; }
+
+.header-text { flex: 1; min-width: 0; }
+
+.header-title {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-hi);
+    letter-spacing: 0.03em;
+}
+
+.header-sub {
+    font-size: 10px;
+    color: var(--text-lo);
+    font-family: var(--mono);
+    margin-top: 1px;
+}
+
+.btn-header-icon {
+    background-color: transparent;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text-mid);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+    margin-left: 10px; /* UXP ignores the row's flex gap */
+}
+.btn-header-icon:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background-color: var(--accent-glow);
+}
+
+/* ── Body ───────────────────────────────────────────────────────────────────── */
+.body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px; /* inert in UXP — the sibling margin below is what separates blocks */
+}
+/* Each block keeps its natural height. Without this, UXP's flex column shrinks
+   the children when the content is taller than the panel, squashing the track
+   list and overlapping the log. Pinned to natural height, `.body` scrolls. */
+.body > * { flex-shrink: 0; }
+.body > * + * { margin-top: 12px; }
+/* The primary action gets more air above it than the base 12px rhythm: the
+   Tracks section is a bare label + box, not a padded .card like its neighbours,
+   so the same 12px reads tighter here than it measures — the bright button
+   sitting close against unpadded content. Tighten below it and after the
+   blocks that read as results rather than controls. (A margin-top here
+   collides with `.body > * + *` above at equal specificity and wins by source
+   order — intentional this time; that collision once silently shrank this same
+   gap to 4px instead, which is what prompted the comment.) */
+.btn-row { margin-top: 18px; margin-bottom: 4px; }
+#results-section, #warnings-section { margin-bottom: 4px; }
+
+.tips-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: rgba(74, 247, 154, 0.08);
+    border: 1px solid rgba(74, 247, 154, 0.35);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-top: 10px;
+    margin-bottom: 4px;
+}
+.tips-card-text { flex: 1; font-size: 11px; line-height: 1.5; color: var(--text-hi); }
+.tips-card-text a { color: var(--green); font-weight: 600; text-decoration: underline; }
+.tips-card-text a:hover { color: #7dffbd; }
+#tips-card-close { flex-shrink: 0; }
+
+.card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+}
+
+.card-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-lo);
+    margin-bottom: 6px;
+}
+.card-label .hint {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-lo);
+    opacity: 0.8;
+}
+
+.section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.section-head .card-label { margin-bottom: 4px; }
+.head-tools { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.head-tools > * + * { margin-left: 6px; }
+
+#seq-info {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-mid);
+    min-height: 16px;
+}
+.seq-name { color: var(--accent); font-weight: 600; display: block; margin-bottom: 2px; }
+.seq-meta { color: var(--text-lo); font-size: 10px; }
+
+/* ── Progress / busy ────────────────────────────────────────────────────────── */
+#progress-wrap {
+    display: none;
+    height: 4px;
+    background-color: var(--bg-input);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+#progress-bar {
+    height: 100%;
+    background-color: var(--accent);
+    border-radius: 2px;
+    width: 0%;
+}
+
+.busy-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+}
+
+.busy-spinner {
+    width: 11px;
+    height: 11px;
+    border: 2px solid var(--accent-dim);
+    border-top-color: var(--accent);
+    border-radius: 6px;
+    flex-shrink: 0;
+    animation: busy-spin 0.7s linear infinite;
+    margin-right: 8px; /* UXP ignores the row's flex gap */
+}
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
+/* UXP's <button> widget ignores author CSS backgrounds, so every action in the
+   panel is a <div class="btn">; .is-disabled stands in for :disabled. */
+.btn-row { display: flex; gap: 8px; }
+.btn-row > * + * { margin-left: 8px; } /* UXP ignores the row's flex gap */
+
+.btn {
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 8px 14px;
+    letter-spacing: 0.02em;
+    text-align: center;
+    user-select: none;
+}
+.btn.is-disabled { opacity: 0.35; cursor: default; }
+
+.btn-secondary {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-mid);
+    flex: 0 0 auto;
+}
+.btn-secondary:not(.is-disabled):hover {
+    border-color: var(--border-lit);
+    color: var(--text-hi);
+    background-color: var(--bg-panel);
+}
+
+.btn-primary {
+    background-color: var(--accent);
+    color: #0d2b30;
+    flex: 1;
+    font-weight: 600;
+}
+.btn-primary:not(.is-disabled):hover { background-color: #5ad8e8; }
+
+.btn-mini {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-mid);
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--mono);
+    user-select: none;
+}
+.btn-mini:not(.is-disabled):hover { border-color: var(--border-lit); color: var(--text-hi); }
+.btn-mini.is-on { color: var(--accent); border-color: var(--accent); }
+
+.btn-cancel {
+    margin-left: auto;
+    color: var(--red);
+    border-color: var(--red);
+}
+.btn-cancel:not(.is-disabled):hover { color: #fff; background-color: var(--red); }
+
+/* ── Segmented controls (replace <select>) ──────────────────────────────────── */
+.seg {
+    display: flex;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.seg-opt {
+    flex: 1;
+    padding: 3px 6px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-lo);
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+}
+.seg-opt + .seg-opt { border-left: 1px solid var(--border); }
+.seg-opt:hover { color: var(--text-mid); }
+.seg-opt.is-on { color: #0d2b30; background-color: var(--accent); font-weight: 600; }
+
+/* ── Track list ─────────────────────────────────────────────────────────────── */
+.track-card {
+    background-color: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.track-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+}
+.track-row > * + * { margin-left: 8px; } /* UXP ignores the row's flex gap */
+.track-row + .track-row { border-top: 1px solid var(--border); }
+.track-row:hover { background-color: var(--bg-card); }
+.track-row.is-ref { background-color: #3ac7d912; }
+
+/* Role toggles. Plain divs with an .is-on class — no checkbox/radio elements
+   and no reliance on :checked, which UXP's renderer does not style for us. */
+.pill {
+    flex-shrink: 0;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-lo);
+    background-color: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    min-width: 34px;
+    text-align: center;
+    user-select: none;
+}
+.pill:not(.is-off):hover { border-color: var(--border-lit); color: var(--text-mid); }
+.pill.is-on { color: #0d2b30; background-color: var(--accent); border-color: var(--accent); }
+.pill.is-off { opacity: 0.25; cursor: default; }
+
+.track-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--text-hi);
+}
+
+/* Live tally of what's selected on this track right now — no Scan needed.
+   Green when it makes the track a target automatically; a quieter accent on
+   the reference row, where the count is informational only. */
+.track-live {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-lo);
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+}
+.track-live.is-target { color: #0d2416; background-color: var(--green); border-color: var(--green); font-weight: 600; }
+.track-live.is-ref-live { color: var(--accent); border-color: var(--accent-dim); }
+
+.track-meta {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-lo);
+    flex-shrink: 0;
+}
+.track-empty { opacity: 0.45; }
+
+input[type="text"] {
+    background-color: var(--bg-input);
+    color: var(--text-mid);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 5px;
+    font-family: var(--mono);
+    font-size: 10px;
+}
+
+/* The source picker cycles through the file's channels on click. It is an
+   escape hatch, not a normal step, so it stays hidden until the media is
+   genuinely ambiguous or the user presses Sources. */
+.chansel {
+    flex-shrink: 0;
+    min-width: 62px;
+    text-align: center;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-lit);
+    border-radius: 4px;
+    color: var(--text-mid);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 5px;
+    user-select: none;
+}
+.chansel:hover { color: var(--accent); border-color: var(--accent); }
+#tracks:not(.show-sources) .chansel { display: none; }
+
+.tracks-empty {
+    padding: 14px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-lo);
+}
+
+/* ── Options ────────────────────────────────────────────────────────────────── */
+.param-grid {
+    display: flex;
+    gap: 12px;
+}
+.param-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.param-field + .param-field { margin-left: 12px; } /* UXP ignores the row's flex gap */
+.param-field-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-lo);
+    margin-bottom: 4px;
+}
+/* Explains what the panel decides on the user's behalf, so an absent control
+   reads as "handled" rather than "missing". */
+.param-note {
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    line-height: 1.5;
+    color: var(--text-lo);
+}
+.param-note-warn { color: var(--yellow); }
+
+/* ── Tables ─────────────────────────────────────────────────────────────────── */
+.table-wrap {
+    max-height: 200px;
+    overflow-y: auto;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 10px;
+}
+.data-table thead th {
+    background-color: var(--bg-input);
+    color: var(--text-lo);
+    font-weight: 500;
+    padding: 6px 8px;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+}
+.data-table tbody tr { border-bottom: 1px solid var(--border); }
+.data-table tbody tr:hover { background-color: var(--bg-panel); }
+.data-table td {
+    padding: 6px 8px;
+    color: var(--text-mid);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+
+.cell-name { color: var(--text-hi); max-width: 110px; }
+.cell-num  { color: var(--yellow); }
+.cell-dim  { color: var(--text-lo); }
+
+.res-ok   { color: var(--green); }
+.res-warn { color: var(--yellow); }
+.res-bad  { color: var(--red); }
+
+.badge {
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 4px;
+    padding: 0 5px;
+    border: 1px solid var(--border);
+}
+.badge-high { color: var(--green);  border-color: var(--green);  background-color: #4af79a18; }
+.badge-mid  { color: var(--yellow); border-color: var(--yellow); background-color: #f7c94a18; }
+.badge-low  { color: var(--red);    border-color: var(--red);    background-color: #f75a5a18; }
+.badge-none { color: var(--text-lo); }
+/* A null this deep almost always means both sides decoded the same audio. */
+.badge-suspect { color: var(--accent); border-color: var(--accent); background-color: #3ac7d918; }
+
+.flag {
+    font-size: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--yellow);
+    border: 1px solid var(--yellow);
+    border-radius: 3px;
+    padding: 0 3px;
+    margin-left: 4px;
+}
+
+/* ── Warnings ───────────────────────────────────────────────────────────────── */
+.warn-list {
+    background-color: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    max-height: 130px;
+    overflow-y: auto;
+}
+.warn-item {
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--yellow);
+}
+.warn-item + .warn-item { margin-top: 3px; }
+.warn-clip { color: var(--text-hi); font-weight: 600; }
+
+/* ── Log ────────────────────────────────────────────────────────────────────── */
+#log {
+    background-color: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.6;
+    min-height: 76px;
+    max-height: 170px;
+    overflow-y: auto;
+}
+.log-entry   { color: var(--text-lo); white-space: pre-wrap; }
+.log-info    { color: var(--text-mid); }
+.log-success { color: var(--green); }
+.log-warn    { color: var(--yellow); }
+.log-error   { color: var(--red); }
+
+/* ── Settings ───────────────────────────────────────────────────────────────── */
+.settings-toggle {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-lo);
+    cursor: pointer;
+    padding: 2px 0;
+    user-select: none;
+}
+.settings-toggle:hover { color: var(--text-mid); }
+.settings-body { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.settings-body > * + * { margin-top: 10px; }
+.settings-field { display: flex; flex-direction: column; gap: 3px; }
+.settings-field-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-lo);
+    margin-bottom: 4px;
+}
+.settings-body input[type="text"] { width: 100%; }
+#dev-out {
+    background-color: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-mid);
+    white-space: pre-wrap;
+    max-height: 150px;
+    overflow: auto;
+}
+
+/* ── Instructions panel ─────────────────────────────────────────────────────── */
+.instructions-panel {
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    background-color: var(--bg);
+    display: none;
+    flex-direction: column;
+    z-index: 100;
+}
+.instructions-panel.visible { display: flex; }
+
+.instructions-header {
+    background-color: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+.instructions-title {
+    flex: 1;
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-hi);
+    letter-spacing: 0.03em;
+}
+.instructions-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.instructions-body > * { flex-shrink: 0; }
+.instructions-body > * + * { margin-top: 18px; }
+.ins-section { display: flex; flex-direction: column; gap: 6px; }
+.ins-section > * + * { margin-top: 7px; }
+.ins-heading {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.ins-text { font-size: 11px; color: var(--text-mid); line-height: 1.65; }
+.ins-text strong { color: var(--text-hi); font-weight: 600; }
+.ins-text code {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--yellow);
+    background-color: var(--bg-input);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+.ins-note {
+    font-size: 10px;
+    color: var(--text-lo);
+    border-left: 2px solid var(--border-lit);
+    padding-left: 8px;
+}
+.ins-range-table { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+.ins-range-row { display: flex; gap: 10px; font-size: 11px; color: var(--text-mid); }
+.ins-range-row + .ins-range-row { margin-top: 5px; }
+.ins-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-hi);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    min-width: 46px;
+    text-align: center;
+    flex-shrink: 0;
+    height: 16px;
+    margin-right: 10px; /* UXP ignores the row's flex gap */
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────────── */
+.footer {
+    padding: 8px 16px 10px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-lo);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+.footer > * + * { margin-left: 8px; } /* UXP ignores the row's flex gap */
+.footer a {
+    color: inherit;
+    text-decoration: none;
+    opacity: 0.6;
+    cursor: pointer;
+}
+.footer a:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
+.tool-chip {
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.tool-ok      { color: var(--green); border-color: #4af79a55; }
+.tool-missing { color: var(--red);   border-color: var(--red); }

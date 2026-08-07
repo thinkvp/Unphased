@@ -1,0 +1,19 @@
+{
+  "sampleRate": 48000,
+  "seconds": 30,
+  "boom": "boom.wav",
+  "lav1": {
+    "file": "lav1.wav",
+    "delayMs": [
+      18,
+      21
+    ],
+    "polarityInverted": true,
+    "gainDb": -6
+  },
+  "lav2": {
+    "file": "lav2.wav",
+    "delayMs": 7.3,
+    "allpass": true
+  }
+}

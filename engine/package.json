@@ -1,0 +1,9 @@
+{
+  "name": "unphased-engine",
+  "version": "0.1.0",
+  "description": "Standalone audio alignment engine (AAP2-style) for the Unphased Premiere Pro panel",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}

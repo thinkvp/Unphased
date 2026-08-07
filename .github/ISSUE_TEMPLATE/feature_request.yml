@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a change to the panel or the alignment engine
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do that Unphased makes hard or impossible? Start
+        with the editing situation rather than the proposed control.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Where it belongs
+      options:
+        - UXP plugin
+        - CEP extension
+        - Both panels
+        - The shared DSP engine
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: Workarounds, other tools, manual steps.

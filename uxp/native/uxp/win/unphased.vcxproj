@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSBuild project for the Windows (x64) Unphased UXP hybrid addon.
+
+  Build:  msbuild native\uxp\win\unphased.vcxproj /p:Configuration=Release /p:Platform=x64
+  Output: native\uxp\win\build\unphased.uxpaddon  (copy to uxp\win\x64\)
+
+  Expects a STATIC, audio-only FFmpeg 8.1.2 under native\third_party\ffmpeg-static
+  (include\ and lib\) — see native\README.md. /MT matches the CRT those libs are
+  built against and makes the addon self-contained: no MSVCP140/VCRUNTIME140
+  dependency on the user's machine.
+-->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{7a3f1c62-9d84-4b15-8e70-1c9a6b2d5f31}</ProjectGuid>
+    <RootNamespace>unphased</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>build\</OutDir>
+    <IntDir>build\obj\$(Configuration)\</IntDir>
+    <TargetName>unphased</TargetName>
+    <TargetExt>.uxpaddon</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>build\</OutDir>
+    <IntDir>build\obj\$(Configuration)\</IntDir>
+    <TargetName>unphased</TargetName>
+    <TargetExt>.uxpaddon</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PreprocessorDefinitions>_WINDOWS;_USRDLL;UNPHASED_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\src;..\src\api;..\src\utilities;..\..\src;..\..\third_party\ffmpeg-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+      <AdditionalLibraryDirectories>..\..\third_party\ffmpeg-static\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>avformat.lib;avcodec.lib;swresample.lib;avutil.lib;Bcrypt.lib;Mfplat.lib;Mfuuid.lib;Ole32.lib;User32.lib;Strmiids.lib;Ws2_32.lib;Secur32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <!-- Match the static FFmpeg libs' CRT (/MT) and drop the redistributable
+           dependency, so the addon works on a machine with no VC++ runtime. -->
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\src\utilities\UxpAddon.cpp" />
+    <ClCompile Include="..\src\utilities\UxpTask.cpp" />
+    <ClCompile Include="..\src\utilities\UxpValue.cpp" />
+    <ClCompile Include="..\src\module_unphased.cpp" />
+    <ClCompile Include="..\..\src\unphased_decode.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\src\api\UxpAddonShared.h" />
+    <ClInclude Include="..\src\api\UxpAddonTypes.h" />
+    <ClInclude Include="..\src\utilities\UxpAddon.h" />
+    <ClInclude Include="..\..\src\unphased_decode.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

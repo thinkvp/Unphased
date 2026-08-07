@@ -1,0 +1,30 @@
+# LF everywhere, on every platform, on purpose — not just tidiness.
+#
+# uxp/scripts/build-engine.js regenerates uxp/js/engine/* and uxp/js/pairing.js
+# and compares them to the committed copies **byte for byte** (`npm run lint`).
+# The transpiler always emits LF, so a CRLF checkout would fail lint on every
+# fresh clone on Windows. Everything in the tree is LF today; keep it that way.
+* text=auto eol=lf
+
+# Binaries — never touch these.
+*.uxpaddon binary
+*.wav      binary
+*.woff2    binary
+*.lib      binary
+*.dll      binary
+*.exe      binary
+*.ccx      binary
+*.zxp      binary
+*.png      binary
+*.jpg      binary
+*.gif      binary
+
+# Generated from engine/src by uxp/scripts/build-engine.js — committed so the
+# plugin folder loads as-is, but not hand-written and not worth counting.
+uxp/js/engine/*.js linguist-generated=true
+uxp/js/pairing.js  linguist-generated=true
+
+# Vendored: Adobe sample code and third-party libraries.
+uxp/native/uxp/src/** linguist-vendored=true
+cep/js/CSInterface.js linguist-vendored=true
+cep/jsx/json2.jsx     linguist-vendored=true

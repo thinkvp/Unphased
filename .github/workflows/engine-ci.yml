@@ -1,0 +1,47 @@
+name: Engine CI
+
+# The shared DSP. Runs on Linux because it is pure Node — the only external
+# dependency is ffmpeg, which a handful of tests use and skip themselves
+# without. We install it so those tests actually run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'engine/**'
+      - 'cep/**'
+      - 'testmedia/**'
+      - '.github/workflows/engine-ci.yml'
+  pull_request:
+    paths:
+      - 'engine/**'
+      - 'cep/**'
+      - 'testmedia/**'
+      - '.github/workflows/engine-ci.yml'
+
+defaults:
+  run:
+    working-directory: engine
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      # engine/test/panel.test.js asserts on cep/ markup and host.jsx, so this
+      # job is the CEP extension's test suite too.
+      - name: Unit tests
+        run: npm test

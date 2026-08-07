@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How Unphased works
+    url: https://github.com/thinkvp/Unphased/blob/main/docs/architecture.md
+    about: Architecture notes — the DSP pipeline, the job protocol, the Premiere API quirks.
+  - name: Reading the Null column
+    url: https://github.com/thinkvp/Unphased/blob/main/README.md#reading-the-results
+    about: What a given null depth actually means before you file it as a bug.
+  - name: FFmpeg source request (LGPL)
+    url: https://github.com/thinkvp/Unphased/issues/new
+    about: Open an issue to request the FFmpeg source and object files for the bundled addon.

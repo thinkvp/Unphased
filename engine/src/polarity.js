@@ -1,0 +1,40 @@
+// Polarity detection. GCC-PHAT whitening destroys reliable amplitude sign,
+// so this uses plain normalized cross-correlation evaluated at the solved
+// lag, RMS-weighted across blocks. One global decision per clip pair.
+
+import { rmsOf, db, adaptiveGateDb } from './coarse.js';
+
+/**
+ * @param {Float64Array} ref
+ * @param {Float64Array} tgt
+ * @param {number} offsetSamples lag by which tgt lags ref
+ * @returns {{ inverted: boolean, score: number }} score in [-1, 1]
+ */
+export function detectPolarity(ref, tgt, offsetSamples, opts) {
+  const { sampleRate, blockSec = 0.5, rmsGateDb = null } = opts;
+  const gateDb = rmsGateDb === null ? adaptiveGateDb(ref) : rmsGateDb;
+  const D = Math.round(offsetSamples);
+  const N = Math.round(blockSec * sampleRate);
+  let num = 0;
+  let wsum = 0;
+  const len = Math.min(ref.length, tgt.length - D);
+  for (let t0 = 0; t0 + N <= len; t0 += N) {
+    if (t0 + D < 0) continue;
+    let dot = 0, e1 = 0, e2 = 0;
+    for (let i = 0; i < N; i++) {
+      const a = ref[t0 + i];
+      const b = tgt[t0 + D + i];
+      dot += a * b;
+      e1 += a * a;
+      e2 += b * b;
+    }
+    const refRms = Math.sqrt(e1 / N);
+    if (db(refRms) < gateDb || e2 === 0) continue;
+    const ncc = dot / (Math.sqrt(e1 * e2) + 1e-30);
+    const w = refRms;
+    num += ncc * w;
+    wsum += w;
+  }
+  const score = wsum > 0 ? num / wsum : 0;
+  return { inverted: score < 0, score };
+}

@@ -1,0 +1,22 @@
+node_modules/
+engine/fixtures/
+*.log
+tmp/
+
+# Release staging (see .github/workflows/release.yml)
+dist-cep/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# UXP build outputs. The native addon itself (uxp/win/x64/*.uxpaddon) IS
+# committed — it is the artifact build-ccx.js packages, and rebuilding a static
+# FFmpeg on every CI run for a file that changes twice a year is not worth it.
+uxp/dist/
+uxp/native/build/
+uxp/native/uxp/win/build/
+uxp/native/third_party/
+uxp/ffmpeg-out/

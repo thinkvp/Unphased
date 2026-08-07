@@ -1,0 +1,73 @@
+name: Bug report
+description: Something in the panel or the alignment is wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing an alignment bug: a **Null above 40 dB with a Delay of
+        exactly ±0.0 ms and no Drift** is the signature of a clip aligned
+        against itself — press **Sources** and check the source-channel
+        assignment first. That is a media-layout mix-up, not an engine fault.
+
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Which plugin
+      options:
+        - UXP (Premiere 26+)
+        - CEP (Premiere 2024/2025)
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Unphased version
+      description: Shown in the panel footer.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: host
+    attributes:
+      label: Premiere Pro version and OS
+      placeholder: "Premiere Pro 26.1, Windows 11"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: results
+    attributes:
+      label: Results row
+      description: >
+        Paste the Results table row(s) for the affected clips — Clip, Delay,
+        Drift, Pol, Null, Status.
+      render: text
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Panel log
+      description: The contents of the Log section. Paths can be redacted.
+      render: text
+
+  - type: textarea
+    id: media
+    attributes:
+      label: The media
+      description: >
+        Recorder or camera, sample rate, bit depth, channel count, and — this
+        one matters — whether several timeline tracks share one media file.
+    validations:
+      required: true

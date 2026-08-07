@@ -1,0 +1,223 @@
+<link rel="stylesheet" href="css/panel.css"/>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-icon">
+    <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+      <!-- two waveforms converging on a shared centre line -->
+      <line x1="8" y1="1.6" x2="8" y2="14.4" stroke="#3AC7D9" stroke-width="0.7" stroke-dasharray="1.4 1.2" opacity="0.75"/>
+      <polyline points="1.4,4.6 3,4.6 3.9,2.4 4.8,6.8 5.7,3.4 6.6,5.4 7.5,4.6 14.6,4.6"
+                fill="none" stroke="#E6EEF0" stroke-width="0.75" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="1.4,11.4 8.5,11.4 9.4,9.2 10.3,13.6 11.2,10.2 12.1,12.2 13,11.4 14.6,11.4"
+                fill="none" stroke="#4AF79A" stroke-width="0.75" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <div class="header-text">
+    <div class="header-title">Unphased</div>
+    <div class="header-sub">Mic alignment &amp; phase correction for Premiere Pro</div>
+  </div>
+  <div id="btn-instructions" class="btn-header-icon" title="Instructions">?</div>
+</div>
+
+<div class="body">
+
+  <!-- Active sequence -->
+  <div class="card">
+    <div class="card-label">Active Sequence</div>
+    <div id="seq-info">Open a sequence — Unphased picks it up automatically.</div>
+    <div id="boot-error" class="log-error" style="display:none;"></div>
+    <div id="busy-row" class="busy-row" style="display:none;">
+      <span class="busy-spinner"></span>
+      <span id="busy-text">Working…</span>
+      <div id="btn-cancel" class="btn-mini btn-cancel" title="Stop the current operation">✕ Cancel</div>
+    </div>
+    <div id="progress-wrap"><div id="progress-bar"></div></div>
+  </div>
+
+  <!-- Options -->
+  <div class="card">
+    <div class="card-label">Alignment</div>
+    <div class="param-grid">
+      <div class="param-field">
+        <div class="param-field-label" title="Whether the delay is allowed to change across the take">Time</div>
+        <div id="param-mode" class="seg">
+          <div class="seg-opt is-on" data-value="dynamic" title="Track a delay that changes across the take">Dynamic</div>
+          <div class="seg-opt" data-value="static" title="One fixed offset for the whole clip">Static</div>
+        </div>
+      </div>
+      <div class="param-field">
+        <div class="param-field-label" title="Correct the frequency-dependent phase difference between the mics">Phase</div>
+        <div id="param-phase" class="seg">
+          <div class="seg-opt is-on" data-value="spectral" title="Track a phase relationship that changes across the clip">Spectral</div>
+          <div class="seg-opt" data-value="static" title="One phase curve for the whole clip">Static</div>
+          <div class="seg-opt" data-value="off" title="Timing only — leave the target's own character alone">Off</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tracks -->
+  <div>
+    <div class="section-head">
+      <div class="card-label">Tracks <span class="hint">— click one to set it as reference</span></div>
+      <div class="head-tools">
+        <div id="btn-refresh" class="btn-mini" title="Re-read the active sequence — tracks, clips and sources. Unphased already does this when the active sequence changes, and again right before every Align; use this if you add a track, add clips, or swap media without switching sequences">↺ Refresh</div>
+        <div id="btn-sources" class="btn-mini" style="display:none;" title="Show which source channel each track plays">Sources</div>
+      </div>
+    </div>
+    <div class="track-card">
+      <div id="tracks"></div>
+      <div id="tracks-empty" class="tracks-empty">No sequence read yet.</div>
+    </div>
+    <div id="align-note" class="param-note" style="display:none;"></div>
+  </div>
+
+  <!-- Actions -->
+  <div class="btn-row">
+    <div id="btn-align" class="btn btn-primary is-disabled">◆ Align</div>
+  </div>
+
+  <!-- Tips card: shown once per install after a successful Align -->
+  <div id="tips-card" class="tips-card" style="display:none;">
+    <span class="tips-card-text">🎉 <span id="tips-card-stats">Aligned!</span> Unphased is free — if it saved you time, consider <a id="tips-card-link" href="https://ko-fi.com/thinkvp">tipping on Ko-fi</a>.</span>
+    <div id="tips-card-close" class="btn-mini" title="Dismiss">✕</div>
+  </div>
+
+  <!-- Results -->
+  <div id="results-section" style="display:none;">
+    <div class="section-head">
+      <div class="card-label">Results</div>
+      <div id="btn-clear-results" class="btn-mini" title="Clear the results table">✕ Clear</div>
+    </div>
+    <div class="table-wrap">
+      <table id="results" class="data-table">
+        <thead>
+          <tr><th>Clip</th><th>Delay</th><th>Drift</th><th>Pol</th><th>Null</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Warnings -->
+  <div id="warnings-section" style="display:none;">
+    <div class="card-label">Warnings</div>
+    <div id="warnings" class="warn-list"></div>
+  </div>
+
+  <!-- Log -->
+  <div>
+    <div class="section-head">
+      <div class="card-label">Log</div>
+      <div id="btn-clear-log" class="btn-mini" title="Clear the log">✕ Clear</div>
+    </div>
+    <div id="log"></div>
+  </div>
+
+  <!-- Settings -->
+  <div>
+    <div id="settings-toggle" class="settings-toggle">▸ Settings</div>
+    <div id="settings-body" class="settings-body" style="display:none;">
+      <div class="settings-field">
+        <div class="settings-field-label" title="Where the aligned WAVs are written. They stay part of the project, so they must outlive the temp folder.">rendered audio folder</div>
+        <input type="text" id="set-render" placeholder="auto — &quot;Unphased Audio&quot; next to the project file"/>
+      </div>
+      <div class="btn-row">
+        <div id="btn-ping" class="btn btn-secondary">Test host connection</div>
+      </div>
+      <pre id="dev-out" style="display:none;"></pre>
+    </div>
+  </div>
+
+</div>
+
+<!-- Instructions -->
+<div id="instructions-panel" class="instructions-panel">
+  <div class="instructions-header">
+    <span class="instructions-title">How to use Unphased</span>
+    <div id="btn-instructions-close" class="btn-header-icon" title="Close">✕</div>
+  </div>
+  <div class="instructions-body">
+
+    <div class="ins-section">
+      <div class="ins-heading">What it does</div>
+      <p class="ins-text">Unphased time-aligns every microphone to a <strong>reference track</strong> — correcting a fixed offset, <strong>drift</strong> that changes across the take, <strong>polarity</strong>, and the frequency-dependent <strong>phase</strong> difference between mics. It renders new audio files and places them on fresh tracks, leaving your originals in place.</p>
+      <p class="ins-text ins-note">Analysis runs on a 48&nbsp;kHz mono signal, but rendering keeps the source's own channel count, sample rate and bit depth — a stereo clip stays stereo.</p>
+    </div>
+
+    <div class="ins-section">
+      <div class="ins-heading">Steps</div>
+      <p class="ins-text">Open a sequence — Unphased reads it and probes each media file's audio layout automatically.<br/>
+      <strong>1.</strong> Click one track to mark it <strong>REF</strong> (usually the boom or the best-sounding mic).<br/>
+      <strong>2.</strong> Select the clips you want aligned in the timeline — any other track with a selected clip becomes a target automatically, live, with no extra step.<br/>
+      <strong>3. Align</strong> extracts the overlapping audio, aligns it, and places the results on new tracks at the original positions.</p>
+      <p class="ins-text ins-note">Added a track, added clips, or swapped media without switching sequences? Press <strong>Refresh</strong>, next to Sources, to pick it up in the panel — Align always re-reads the sequence for itself first, so Refresh only matters for what you see beforehand.</p>
+      <p class="ins-text ins-note">All of the decoding and DSP runs inside the panel, so Premiere's UI pauses in short bursts while a clip is processed. Cancel stops after the segment in flight.</p>
+    </div>
+
+    <div class="ins-section">
+      <div class="ins-heading">Source channels</div>
+      <p class="ins-text">Premiere's scripting API cannot say which audio channel a clip uses. A multi-input camera writes one mono stream per mic, and Premiere spreads them across consecutive tracks — so several tracks share one file and differ only by stream.</p>
+      <p class="ins-text">Unphased probes each file and can show a <strong>source chip</strong> on any track that offers a choice — press <strong>Sources</strong> above the track list, then click a chip to cycle through that file's channels. When several tracks share one file, the default assigns streams by track order, which matches how Premiere lays them out. The log flags this on Refresh; when it does, <strong>open Sources and check before aligning.</strong></p>
+      <p class="ins-text">A multi-channel file used by a single track is an ordinary stereo recording rather than two mics, so it defaults to <strong>stereo</strong> and keeps every channel. Picking <strong>left</strong> or <strong>right</strong> analyses <em>and renders</em> that channel alone — use it only when the two channels really are separate mics.</p>
+      <p class="ins-text ins-note">If a reference and target resolve to the same file, time <em>and</em> channel, the pair is refused — both sides would decode identical audio and produce a perfect-looking but meaningless result.</p>
+    </div>
+
+    <div class="ins-section">
+      <div class="ins-heading">Reading the Null column</div>
+      <p class="ins-text">Null is how deeply the aligned clip cancels against the reference. Higher is <em>not</em> automatically better:</p>
+      <div class="ins-range-table">
+        <div class="ins-range-row"><span class="ins-tag">&gt; 40 dB</span><span>Suspiciously perfect — usually the same audio on both sides</span></div>
+        <div class="ins-range-row"><span class="ins-tag">10–25 dB</span><span>A genuinely good alignment of two different mics</span></div>
+        <div class="ins-range-row"><span class="ins-tag">3–10 dB</span><span>Normal for mics in very different positions (lav vs camera)</span></div>
+        <div class="ins-range-row"><span class="ins-tag">&lt; 2 dB</span><span>Little real correlation — treat with suspicion</span></div>
+      </div>
+      <p class="ins-text ins-note">A delay of exactly ±0.0&nbsp;ms with no drift and a huge null is the signature of a clip aligned against itself.</p>
+    </div>
+
+    <div class="ins-section">
+      <div class="ins-heading">Options</div>
+      <p class="ins-text">There are two, because there are only two questions an editor can answer better than the analysis can.</p>
+      <div class="ins-range-table">
+        <div class="ins-range-row"><span class="ins-tag">Dynamic</span><span>Tracks delay that changes through the take (talent moving, clock drift)</span></div>
+        <div class="ins-range-row"><span class="ins-tag">Static</span><span>One fixed offset for the whole clip</span></div>
+        <div class="ins-range-row"><span class="ins-tag">Spectral</span><span>Corrects the frequency-dependent phase difference, and lets it change across the clip</span></div>
+        <div class="ins-range-row"><span class="ins-tag">Phase: Static</span><span>One phase curve for the whole clip — for a fixed mic geometry</span></div>
+        <div class="ins-range-row"><span class="ins-tag">Phase: Off</span><span>Timing only; leaves the target's own character untouched</span></div>
+      </div>
+      <p class="ins-text ins-note">Search range, drift agility, polarity and band weighting are decided per clip. The search window starts narrow and widens only when the evidence says the true offset lies outside it — a hand-set window that is too narrow does not fail, it returns a confident wrong answer. A widened search is noted in the log.</p>
+    </div>
+
+    <div class="ins-section">
+      <div class="ins-heading">What is left alone</div>
+      <p class="ins-text">Originals are muted <strong>only</strong> when aligned audio replaces them end to end — a partially covered clip stays audible so no silent gap appears. Clips with a speed change, offline media, or too little overlap are skipped with a warning and never modified.</p>
+    </div>
+
+    <div class="ins-section">
+      <div class="ins-heading">Where the rendered files go</div>
+      <p class="ins-text">The aligned WAVs are <strong>project media</strong> — Premiere keeps referencing them for as long as the project exists. They are written to an <strong>Unphased Audio</strong> folder next to your <code>.prproj</code> so they travel with the project and survive a reboot.</p>
+      <p class="ins-text">Each run stamps its filenames with the date and time, so re-aligning never overwrites audio a clip is already pointing at. Old runs are safe to delete once you are happy with the current one.</p>
+      <p class="ins-text ins-note">On an unsaved project there is nowhere to put them, so they land in the plugin's data folder — the log says so when that happens. Save the project first, or set a rendered audio folder in Settings.</p>
+    </div>
+
+    <div class="ins-section">
+      <div class="ins-heading">Requirements</div>
+      <div class="ins-range-table">
+        <div class="ins-range-row"><span class="ins-tag">Host</span><span>Adobe Premiere Pro 26.0 or newer</span></div>
+        <div class="ins-range-row"><span class="ins-tag">Decoder</span><span>Bundled — no ffmpeg or Node install needed</span></div>
+        <div class="ins-range-row"><span class="ins-tag">Older</span><span>On Premiere 24/25, use the CEP version of Unphased</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <span id="version">Unphased UXP v0.2.0</span>
+  <span id="tool-status"></span>
+  <span>Premiere Pro 26+</span>
+  <a id="footer-tips" href="https://ko-fi.com/thinkvp" title="Support development">Tips</a>
+</div>
+
+<script src="js/main.js"></script>

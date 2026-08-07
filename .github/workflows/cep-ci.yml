@@ -54,7 +54,16 @@ jobs:
             echo "::error::.debug staged — that would ship CEF debug ports to users"
             exit 1
           fi
-          node dist/staging/engine/cli.js | grep -q usage
+          # Reaching the usage banner means every top-level import in cli.js
+          # resolved, so the staged src/ tree is complete — the failure this
+          # catches is a module left out of stage.js's include list. cli.js
+          # prints it on stderr and exits 1 by design, so capture rather than
+          # pipe: under `set -e -o pipefail` the exit code would fail the step.
+          out="$(node dist/staging/engine/cli.js 2>&1 || true)"
+          case "$out" in
+            *usage*) ;;
+            *) echo "::error::staged engine did not start: $out"; exit 1 ;;
+          esac
           echo "staged extension ✓"
 
       - name: Build the installer

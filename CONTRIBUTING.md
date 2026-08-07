@@ -40,8 +40,10 @@ cd engine && npm test                # 89 tests — the shared DSP
 cd uxp && npm run lint && npm test   # 31 tests — the UXP plugin
 ```
 
-Node 20, 22 or 24. Engine tests that need `ffmpeg` on PATH skip themselves when
-it is absent; CI installs it so they run there.
+**Node 22 or 24** to run the suites — `node --test "glob"` only expands its own
+globs from Node 22 on. (The CEP panel itself still only needs system Node ≥ 18
+at runtime.) Engine tests that need `ffmpeg` on PATH skip themselves when it is
+absent; CI installs it so they run there.
 
 If a change touches the DSP, say in the PR what it does to **null depth** on the
 `testmedia/` fixtures — that number is the point of the whole project, and

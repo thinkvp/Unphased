@@ -41,7 +41,9 @@ test('every font the stylesheet references is bundled', () => {
   const urls = [...css.matchAll(/url\('([^']+)'\)/g)].map((m) => m[1]);
   assert.ok(urls.length > 0, 'expected bundled @font-face sources');
   for (const rel of urls) {
-    const p = join(PANEL, 'css', rel.replace(/\//g, '\\'));
+    // CSS urls are always forward-slashed; split them so join() builds a path
+    // with the platform's own separator (CI runs this suite on Linux).
+    const p = join(PANEL, 'css', ...rel.split('/'));
     assert.ok(existsSync(p), `missing font ${rel}`);
   }
 });

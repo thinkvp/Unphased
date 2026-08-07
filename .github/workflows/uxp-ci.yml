@@ -31,7 +31,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20, 22, 24]
+        # 22+ only: `node --test "glob"` expands globs itself from Node 22.
+        # On Node 20 (end-of-life since April 2026) the pattern is taken as a
+        # literal path and every suite reports "could not find".
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
 

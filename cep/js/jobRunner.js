@@ -25,11 +25,41 @@ window.UnphasedJobRunner = (function () {
     return m.fs.realpathSync(window.UnphasedBridge.extensionPath);
   }
 
+  /** The engine lives in one of two places depending on how the panel got
+   *  installed, and both have to keep working:
+   *
+   *    installed  <ext>/engine/cli.js          — the installer stages engine/
+   *               INSIDE the extension folder, because the CEP extensions
+   *               directory is scanned for extensions and a bare engine/
+   *               sibling does not belong there.
+   *    from repo  <repo>/engine/cli.js         — cep/ is junctioned in, so the
+   *               realpath above lands back in the repo and engine/ is a
+   *               sibling of cep/.
+   *
+   *  Inside first: a dev running from the repo has no <ext>/engine, and an
+   *  installed panel has no sibling, so the order only matters if both exist —
+   *  in which case the one shipped with the panel is the one it was tested
+   *  against. `unphased.enginePath` in Settings overrides both. */
+  function engineCandidates() {
+    var m = nodeModules();
+    var ext = realExtensionDir();
+    return [
+      m.path.join(ext, 'engine', 'cli.js'),
+      m.path.join(m.path.dirname(ext), 'engine', 'cli.js')
+    ];
+  }
+
   function engineCliPath() {
     var m = nodeModules();
     var custom = localStorage.getItem('unphased.enginePath');
     if (custom) return custom;
-    return m.path.join(m.path.dirname(realExtensionDir()), 'engine', 'cli.js');
+    var candidates = engineCandidates();
+    for (var i = 0; i < candidates.length; i++) {
+      if (m.fs.existsSync(candidates[i])) return candidates[i];
+    }
+    // Nothing found — return the bundled location so the "engine not found"
+    // error names the path an installed panel should have had.
+    return candidates[0];
   }
 
   function resolveNode() {

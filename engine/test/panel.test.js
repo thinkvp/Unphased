@@ -153,6 +153,44 @@ test('rendered audio is not written into the job temp dir', () => {
     'temp should only be the fallback after the project folder');
 });
 
+test('the panel finds the engine both installed and junctioned from the repo', () => {
+  // Two install shapes, and a change that serves one silently breaks the other:
+  //   installed  <ext>/engine/cli.js   — the installer stages engine/ inside the
+  //              extension folder, since the CEP extensions directory is scanned
+  //              for extensions and a bare engine/ sibling does not belong there
+  //   from repo  <ext>/../engine/cli.js — cep/ is junctioned in, so realpath
+  //              lands back in the repo with engine/ beside cep/
+  const runner = readFileSync(join(PANEL, 'js/jobRunner.js'), 'utf8');
+  const fn = runner.slice(runner.indexOf('function engineCandidates'),
+    runner.indexOf('function resolveNode'));
+  assert.ok(fn, 'jobRunner should build a list of engine candidates');
+  assert.match(fn, /path\.join\(ext,\s*'engine',\s*'cli\.js'\)/,
+    'the bundled engine inside the extension folder must be a candidate');
+  assert.match(fn, /path\.dirname\(ext\),\s*'engine',\s*'cli\.js'/,
+    'the sibling engine beside a junctioned cep/ must stay a candidate');
+  // Bundled first: if both exist, the one shipped with the panel is the one it
+  // was tested against.
+  assert.ok(fn.indexOf("path.join(ext,") < fn.indexOf('path.dirname(ext)'),
+    'the bundled engine should be preferred over the repo sibling');
+  // The Settings override has to survive both.
+  assert.match(runner, /localStorage\.getItem\('unphased\.enginePath'\)/,
+    'the enginePath override should still short-circuit the search');
+});
+
+test('the staged CEP extension carries everything the panel loads', () => {
+  // stage.js is the single include list behind the installer. A file the panel
+  // <script>-loads but stage.js omits produces an extension that installs fine
+  // and then throws on open.
+  const stage = readFileSync(join(PANEL, 'scripts/stage.js'), 'utf8');
+  const include = stage.slice(stage.indexOf('const INCLUDE'), stage.indexOf(']', stage.indexOf('const INCLUDE')));
+  for (const dir of ['CSXS', 'css', 'js', 'jsx', 'fonts', 'index.html']) {
+    assert.ok(include.includes(`"${dir}"`), `stage.js does not ship ${dir}`);
+  }
+  // The engine is the whole reason this differs from a normal CEP extension.
+  assert.match(stage, /engine/,
+    'stage.js must copy the engine into the staged extension');
+});
+
 test('the host jsx defines every AA_ function the panel calls', () => {
   const jsx = readFileSync(join(PANEL, 'jsx/host.jsx'), 'utf8');
   const defined = new Set([...jsx.matchAll(/function (AA_\w+)/g)].map((m) => m[1]));

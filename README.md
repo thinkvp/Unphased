@@ -20,7 +20,7 @@ Unphased ships as two plugins, built for different Premiere generations:
 | **OS** | Windows, macOS † | Windows |
 | **ffmpeg** | Bundled — no install needed | System install needed |
 | **Node.js** | Not needed | System Node 18+ needed |
-| **Install** | Download `.ccx`, double-click | Junction the folder, restart Premiere |
+| **Install** | Download `.ccx`, double-click | Download `Setup.exe`, double-click |
 
 - **On Premiere 26+:** use the **UXP** version. It is self-contained — no Node,
   no ffmpeg, no PATH setup — and it is where Adobe's extensibility platform is
@@ -38,8 +38,10 @@ and report what you find.
 Both run the **same DSP engine** and produce the same numbers; they differ only
 in how they reach the host and how they decode audio.
 
-See [`uxp/README.md`](uxp/README.md) or [`cep/README.md`](cep/README.md) for
-install steps and the differences that are visible in use.
+Both install from the [Releases page](https://github.com/thinkvp/Unphased/releases)
+with a double-click and no admin rights. See [`uxp/README.md`](uxp/README.md) or
+[`cep/README.md`](cep/README.md) for the steps and the differences that are
+visible in use.
 
 ## Layout
 

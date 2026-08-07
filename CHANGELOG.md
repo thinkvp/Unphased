@@ -22,7 +22,12 @@ or published, so everything below is what 1.0.0 ships.
   PATH, no scratch files: decode and DSP both run in the panel. One `.ccx`
   carries **Windows x64 and universal macOS (Apple Silicon + Intel)** addons.
 - **CEP extension** for Premiere Pro 2024/2025 on Windows — the same DSP run in
-  system Node via `engine/cli.js`, decoding through a system ffmpeg.
+  system Node via `engine/cli.js`, decoding through a system ffmpeg. Ships as a
+  **double-click installer** (`Unphased-CEP-Setup-<version>.exe`) that needs no
+  admin rights, sets `PlayerDebugMode` across CSXS 9–14, and bundles the engine
+  inside the extension folder so the panel is self-contained. Installing over an
+  existing development junction removes the link first rather than writing
+  through it into the checkout.
 
 ### The engine
 
@@ -56,9 +61,10 @@ or published, so everything below is what 1.0.0 ships.
 
 - 120 tests across two suites (89 engine, 31 UXP), including an end-to-end run
   against fixtures with known ground truth.
-- Three CI workflows: the DSP on Linux with ffmpeg present, the UXP plugin and
-  packaging on Windows, and the native decoder on macOS. Each fails on a
-  non-zero skip count, so a skipped test cannot pass for a green one.
+- Four CI workflows: the DSP on Linux with ffmpeg present, the UXP plugin and
+  packaging on Windows, the CEP staging and installer build on Windows, and the
+  native decoder on macOS. The test jobs fail on a non-zero skip count, so a
+  skipped test cannot pass for a green one.
 
 ### Known limitations
 

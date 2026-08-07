@@ -65,6 +65,7 @@ harness locally on Windows when you change it.
 | --- | --- | --- |
 | `engine-ci.yml` | Linux, Node 22/24 | The DSP, and the CEP panel's static checks, with ffmpeg present |
 | `uxp-ci.yml` | Windows, Node 22/24 | The engine transpile is not stale, and the `.ccx` packages |
+| `cep-ci.yml` | Windows | The extension stages self-contained and the installer builds |
 | `mac-native-ci.yml` | macOS | The native decoder compiles, is universal, and decodes bit-exactly |
 
 The macOS job builds a static FFmpeg, which takes 15–25 minutes cold. It is
@@ -83,6 +84,7 @@ If a change touches the DSP, say in the PR what it does to **null depth** on the
 | `cep/` | CEP extension for Premiere 24/25 — UI + ExtendScript host layer. |
 | `uxp/` | UXP plugin for Premiere 26+ — UI + UXP host layer + native decoder. |
 | `uxp/native/` | The bundled FFmpeg decode addon (C++). See its own README. |
+| `cep/installer/` | Inno Setup script for the Windows CEP installer. |
 | `docs/` | Architecture notes. Read [`docs/architecture.md`](docs/architecture.md) first. |
 | `testmedia/` | Generated fixtures with known ground truth. |
 
@@ -93,6 +95,14 @@ Regenerate the fixtures with `node engine/cli.js gen-fixtures testmedia`.
 **CEP** — `powershell -ExecutionPolicy Bypass -File cep\scripts\install-panel.ps1`
 junctions `cep/` into your CEP extensions folder, so edits are live after a panel
 reload. Devtools at `http://localhost:8088`.
+
+Note that the panel finds the engine in **two** places — bundled at
+`<extension>/engine/cli.js` (how the installer ships it) and at
+`<extension>/../engine/cli.js` (the repo layout you develop against). Only the
+second one exists on your machine, so a change to `js/jobRunner.js` that breaks
+the bundled path will still work locally. `engine/test/panel.test.js` guards
+both, and `cep/scripts/stage.js` is what decides which files an installed panel
+actually gets — add a runtime file to the panel, add it there too.
 
 **UXP** — load with the UXP Developer Tool, or `uxp service start` then
 `uxp plugin load --apps premierepro` from `uxp/`.
@@ -125,9 +135,10 @@ cd uxp && node scripts/set-version.js 0.3.0 --with-cep
 
 That updates the UXP manifest, `package.json`, the panel footer, the version
 `ping()` reports, and the CEP manifest and `VERSION`. Then add a
-[`CHANGELOG.md`](CHANGELOG.md) entry, commit, and push a `v0.3.0` tag —
-`.github/workflows/release.yml` builds the `.ccx`, zips the CEP bundle and
-publishes the GitHub Release.
+[`CHANGELOG.md`](CHANGELOG.md) entry, commit, and push a `v0.3.0` tag.
+`.github/workflows/release.yml` then builds the macOS addon from source,
+packages the cross-platform `.ccx`, builds the CEP installer, and publishes the
+GitHub Release with both.
 
 The native addon (`uxp/win/x64/unphased.uxpaddon`) is **committed** rather than
 built in CI — rebuilding a static FFmpeg on every run for a file that changes

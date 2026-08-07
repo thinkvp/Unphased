@@ -3,8 +3,8 @@ engine/fixtures/
 *.log
 tmp/
 
-# Release staging (see .github/workflows/release.yml)
-dist-cep/
+# CEP packaging output — scripts/stage.js staging tree and the built installer.
+cep/dist/
 
 # OS / editor cruft
 .DS_Store

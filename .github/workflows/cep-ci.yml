@@ -1,0 +1,77 @@
+name: CEP CI
+
+# Builds the CEP installer on every change to the panel, so a broken .iss or a
+# file missing from the stage list is caught here rather than at tag time, when
+# the release workflow is the only thing standing between it and users.
+#
+# The panel's own static checks (markup, host.jsx coverage, engine lookup, the
+# stage include list) live in engine/test/panel.test.js and run in Engine CI —
+# the CEP extension has no test suite of its own.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cep/**'
+      - 'engine/**'
+      - '.github/workflows/cep-ci.yml'
+  pull_request:
+    paths:
+      - 'cep/**'
+      - 'engine/**'
+      - '.github/workflows/cep-ci.yml'
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Stage the extension
+        working-directory: cep
+        run: node scripts/stage.js
+
+      # The staged tree is what users get. Check the two things that would make
+      # it install cleanly and then fail at runtime: a missing engine, and the
+      # .debug file (CEF remote-debugging ports) shipping to end users.
+      - name: The staged tree is self-contained
+        shell: bash
+        working-directory: cep
+        run: |
+          for f in dist/staging/engine/cli.js dist/staging/engine/src/align.js \
+                   dist/staging/index.html dist/staging/CSXS/manifest.xml \
+                   dist/staging/js/jobRunner.js dist/staging/LICENSE; do
+            test -f "$f" || { echo "::error::staged tree is missing $f"; exit 1; }
+          done
+          if [ -e dist/staging/.debug ]; then
+            echo "::error::.debug staged — that would ship CEF debug ports to users"
+            exit 1
+          fi
+          node dist/staging/engine/cli.js | grep -q usage
+          echo "staged extension ✓"
+
+      - name: Build the installer
+        shell: pwsh
+        working-directory: cep
+        run: |
+          $version = (Get-Content VERSION).Trim()
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            installer\unphased-cep-installer.iss /DMyAppVersion=$version
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+          $exe = (Get-ChildItem dist/*.exe)[0]
+          Write-Host "built $($exe.Name) ($([math]::Round($exe.Length/1MB,2)) MB)"
+
+      - name: Upload installer for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: cep-installer
+          path: cep/dist/*.exe
+          if-no-files-found: error
+          retention-days: 14

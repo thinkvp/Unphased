@@ -10,6 +10,12 @@ delay correction**, **automatic polarity fixing**, and **spectral phase
 correction**, then place rendered, aligned audio back into the timeline
 non-destructively.
 
+<img src="docs/unphased-uxp-screenshot.png" alt="The Unphased UXP panel in Premiere Pro: a five-track sequence with Audio 3 marked REF, clips selected on Audio 4 and 5, and the Time and Phase controls above the track list." width="420">
+
+*The UXP panel. Audio 3 is the reference; the two tracks with selected clips
+become targets automatically, and the line under the list says exactly what
+Align will do.*
+
 ## Which version do I need?
 
 Unphased ships as two plugins, built for different Premiere generations:

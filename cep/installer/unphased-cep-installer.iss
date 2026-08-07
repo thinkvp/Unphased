@@ -69,10 +69,8 @@ Source: "{#StagingDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 // junction and write THROUGH it into their git clone — overwriting a working
 // tree is a genuinely nasty surprise. Detect the reparse point and remove the
 // link first. RemoveDir on a junction deletes the link, never the target.
-const
-  FILE_ATTRIBUTE_REPARSE_POINT = $400;
-  INVALID_FILE_ATTRIBUTES      = $FFFFFFFF;
-
+// FILE_ATTRIBUTE_REPARSE_POINT is already defined by Inno's Pascal Script —
+// declaring it again is a "Duplicate identifier" compile error.
 function GetFileAttributesW(lpFileName: string): Cardinal;
   external 'GetFileAttributesW@kernel32.dll stdcall';
 
@@ -84,7 +82,9 @@ begin
   if not DirExists(Path) then
     Exit;
   Attr := GetFileAttributesW(Path);
-  Result := (Attr <> INVALID_FILE_ATTRIBUTES) and
+  // $FFFFFFFF is INVALID_FILE_ATTRIBUTES — the call failed, so it is not ours
+  // to delete either way.
+  Result := (Attr <> $FFFFFFFF) and
             ((Attr and FILE_ATTRIBUTE_REPARSE_POINT) <> 0);
 end;
 

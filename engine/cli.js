@@ -6,7 +6,8 @@
 import { readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { normalizeJob } from './src/job.js';
+import { normalizeJob, normalizeAutoMixJob } from './src/job.js';
+import { runAutoMix } from './src/autoMixRun.js';
 import { resolveFfmpeg, probeAudio } from './src/decode.js';
 import { writeWav } from './src/wavFile.js';
 import { extractRef, regionKey } from './src/runPair.js';
@@ -79,6 +80,32 @@ async function runJob(jobPath) {
   return failed === 0 ? 0 : 2;
 }
 
+async function runAutoMixJob(jobPath) {
+  const raw = readFileSync(jobPath, 'utf8').replace(/^﻿/, '');
+  const job = normalizeAutoMixJob(JSON.parse(raw));
+  job.tempDir = job.tempDir || join(tmpdir(), 'Unphased', `automix-${process.pid}`);
+  mkdirSync(job.tempDir, { recursive: true });
+  const ffmpegPath = resolveFfmpeg(job.ffmpegPath);
+
+  events.startAutoMix(job.mics.length);
+  let result;
+  try {
+    result = await runAutoMix({
+      ffmpegPath,
+      job,
+      onPhase: (id, phase, pct) => events.phase(id, phase, pct),
+      onMic: (id, payload) => events.result(id, payload),
+      onSummary: (payload) => events.summary(payload),
+    });
+  } catch (err) {
+    events.error(null, String(err.message || err));
+    events.done(0, job.mics.length);
+    return 2;
+  }
+  events.done(result.ok, result.failed);
+  return result.failed === 0 ? 0 : 2;
+}
+
 async function genFixtures(dir) {
   const { speechLike, varyingDelay, fftDelay, addNoise, scale, allpassChain } = await import('./test/fixtures.js');
   mkdirSync(dir, { recursive: true });
@@ -128,12 +155,14 @@ const [, , cmd, arg] = process.argv;
 try {
   if (cmd === 'run' && arg) {
     process.exitCode = await runJob(arg);
+  } else if (cmd === 'automix' && arg) {
+    process.exitCode = await runAutoMixJob(arg);
   } else if (cmd === 'gen-fixtures' && arg) {
     process.exitCode = await genFixtures(arg);
   } else if (cmd === 'probe' && arg) {
     process.exitCode = await probe(arg);
   } else {
-    console.error('usage: node cli.js run <job.json> | gen-fixtures <dir> | probe <paths.json>');
+    console.error('usage: node cli.js run <job.json> | automix <job.json> | gen-fixtures <dir> | probe <paths.json>');
     process.exitCode = 1;
   }
 } catch (err) {

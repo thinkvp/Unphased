@@ -4,11 +4,75 @@ All notable changes to Unphased are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Both plugins ship off one tag and always carry the same version number: the UXP
-version lives in `uxp/manifest.json`, the CEP version in `cep/VERSION`, and CI
-fails the build if they disagree.
+The version lives in `uxp/manifest.json` and is propagated to `package.json`,
+the panel footer and `ping()` by `uxp/scripts/set-version.js`; CI fails the
+release if the tag disagrees with it.
 
-## [Unreleased]
+## [1.1.0]
+
+### Added
+
+- **Auto-Mix (beta).** A new button in the panel — marked Beta there, because it
+  has not yet been proven across a range of real productions — and `node
+  engine/cli.js automix <job.json>` headless. Takes N microphones as equal
+  participants — no reference, no targets, the REF mark is ignored — decides per
+  frame whose mic the current speaker is on, and ducks the rest. Built for three
+  lavs on three people, where every mic is someone's close mic and everyone
+  else's bleed.
+  - In the panel it writes **volume keyframes onto the clips themselves**.
+    Nothing is rendered, imported or placed, and the duck is applied relative to
+    whatever level you already set, so it leans on your mix rather than
+    replacing it. Select a clip on two or more tracks and press Auto-Mix.
+  - The panel runs the analysis in-process, exactly as Align does; the CLI runs
+    the same code headless.
+  - Decides on level **and** time of arrival: direct sound leads, bleed arrives
+    ~3 ms per metre late. Timing is what survives mismatched recorder trims, and
+    it is the only cue that carries information while two people talk at once.
+  - Emits **volume keyframes** by default (`output: "curve"`), or renders ducked
+    WAVs (`"render"`), or both. Auto-mix is the only thing in this engine that
+    can be non-destructive — its output is a gain curve, which is what a volume
+    automation track is.
+  - **Levels.** Each person's own dialogue is brought to a **target loudness**
+    (`levelMatch: "target"`, default −16 LUFS), so a mix of recorders set 20 dB
+    apart lands on a delivery spec rather than merely agreeing with itself. The
+    older relative behaviour is still there as `"match"` — every mic moved
+    toward the median of the others — and `"off"` leaves everything alone. The
+    panel exposes all three plus the target.
+    - Loudness is ITU-R BS.1770, measured **only over the frames attribution
+      says that mic's own wearer was speaking**. Measuring the track instead
+      would count bleed as programme, so the quietest participant — whose mic
+      spends most of the take catching everyone else — would read loud and get
+      turned *down*.
+    - A correction that could not be delivered is reported rather than silently
+      missed: `headroom` (any more gain would risk clipping), `range` (further
+      than 18 dB from where it should be), `unmeasured` (see below).
+  - Reports per-pair geometry in an `automix` summary event; `spreadMs` is the
+    first number to look at on real material.
+  - `node bench.js automix 60` times the stages for 3 and 8 mics.
+  - Known limitations, all recorded in `docs/architecture.md`: clock offsets are
+    fitted pair by pair, which under-ducks a participant who never speaks; cost
+    is O(K²) in mic count; and loudness is measured on the decimated analysis
+    copy, which reads ≈0.4 LU low, so a target lands slightly loud. That last one
+    is a bias of consistent sign, not a per-track error, so it moves no mic
+    relative to another.
+
+### Removed
+
+- **The CEP extension is gone.** Unphased is now the UXP plugin only, and
+  requires **Premiere Pro 26.0 or newer**. The `.ccx` installs with a
+  double-click and carries its own decoder, where the CEP build needed a system
+  Node, an ffmpeg on PATH and a Windows-only installer — two host bridges and
+  two UIs to keep in step for a Premiere generation most users have now left
+  behind. `cep/`, `.github/workflows/cep-ci.yml` and the installer job in
+  `release.yml` are all removed; releases publish the `.ccx` alone.
+  - Users on Premiere 24/25 should stay on
+    [1.0.0](https://github.com/thinkvp/Unphased/releases/tag/v1.0.0), which is
+    the last release carrying a CEP build.
+  - `pairing.js` and `volume.js` used to live in `cep/js/` and be copied into
+    the plugin by `build-engine.js`. They are now hand-maintained at
+    `uxp/js/pairing.js` and `uxp/js/volume.js`, still required directly by the
+    engine test suite, so the transpile step covers `engine/src/` alone.
+  - `set-version.js` no longer takes `--with-cep`; there is one version to set.
 
 ## [1.0.0]
 

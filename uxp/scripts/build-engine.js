@@ -14,8 +14,8 @@
 // import sneaking into a module we claim is pure) is a hard error rather than a
 // silent mistranslation.
 //
-// pairing.js is already a UMD module shared with the CEP panel; it is copied
-// verbatim.
+// js/pairing.js and js/volume.js are NOT generated — they are hand-maintained
+// UMD panel modules that the engine test suite requires directly.
 //
 // Generated files are committed so the plugin folder is loadable as-is. Run
 //   node scripts/build-engine.js --check
@@ -34,9 +34,9 @@ const OUT = path.join(ROOT, "js", "engine");
 //   progress.js — writes NDJSON to stdout (replaced by runner.js callbacks)
 //   wavFile.js  — node:fs wrappers (UXP reads/writes through its own fs)
 const MODULES = [
-    "align.js", "coarse.js", "coherence.js", "decimate.js", "fft.js",
-    "gccPhat.js", "job.js", "lattice.js", "pathSolver.js", "phaseAlign.js",
-    "polarity.js", "varyDelay.js", "wav.js"
+    "align.js", "autoMix.js", "coarse.js", "coherence.js", "decimate.js",
+    "fft.js", "gccPhat.js", "job.js", "lattice.js", "loudness.js",
+    "pathSolver.js", "phaseAlign.js", "polarity.js", "varyDelay.js", "wav.js"
 ];
 
 const BANNER = (from) =>
@@ -75,16 +75,8 @@ function transpile(file) {
         `\nmodule.exports = { ${exported.join(", ")} };\n`;
 }
 
-// pairing.js is shared verbatim with the CEP panel — its UMD wrapper already
-// assigns module.exports, so no rewrite is needed.
-function copyPairing() {
-    const from = path.join(REPO, "cep", "js", "pairing.js");
-    return BANNER("cep/js/pairing.js") + fs.readFileSync(from, "utf8");
-}
-
 const artifacts = new Map();
 for (const m of MODULES) artifacts.set(path.join(OUT, m), transpile(m));
-artifacts.set(path.join(ROOT, "js", "pairing.js"), copyPairing());
 
 const check = process.argv.includes("--check");
 let drifted = 0;

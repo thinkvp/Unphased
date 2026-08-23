@@ -234,6 +234,255 @@ export function timeVaryingAllpass(signal, coeffsA, coeffsB) {
   return out;
 }
 
+const SPEED_OF_SOUND = 343; // m/s
+
+/**
+ * Bleed level for a source `d` metres from a mic, relative to that source on
+ * its own lav at 20 cm. Inverse-square down to a floor, because a real room's
+ * reverberant field stops the fall-off: without the floor, inverse-square puts
+ * a speaker 2 m away 20 dB down and the attribution problem becomes trivial in
+ * a way no production sound recordist would recognise.
+ */
+function bleedDbFor(distanceM, floorDb) {
+  const d = Math.max(0.01, distanceM);
+  const inverseSquare = -20 * Math.log10(d / 0.2);
+  return Math.max(inverseSquare, -Math.abs(floorDb));
+}
+
+/**
+ * Assign a per-utterance gain to a speech signal, so one speaker can deliver
+ * some lines hot and others 18 dB down. Runs are found from `voiced`, and each
+ * successive run takes the next gain in `gains` (cycling).
+ *
+ * A run whose gain is below -60 dB is marked unvoiced: that is how a
+ * participant who never actually speaks is expressed, and the ground truth has
+ * to agree that they are silent.
+ */
+function gainUtterances(signal, voiced, gains) {
+  const n = signal.length;
+  const out = new Float64Array(n);
+  const vOut = new Uint8Array(n);
+  let i = 0;
+  let run = 0;
+  while (i < n) {
+    if (!voiced[i]) { out[i] = signal[i]; i++; continue; }
+    let end = i;
+    while (end < n && voiced[end]) end++;
+    const gainDb = gains[run % gains.length];
+    const g = Math.pow(10, gainDb / 20);
+    const audible = gainDb > -60;
+    for (let j = i; j < end; j++) {
+      out[j] = signal[j] * g;
+      vOut[j] = audible ? 1 : 0;
+    }
+    run++;
+    i = end;
+  }
+  return { signal: out, voiced: vOut, runs: run };
+}
+
+/**
+ * Turn-taking schedule: who holds the floor, and when.
+ *
+ * Without this, K independent speechLike signals talk over each other roughly
+ * all the time — a 3-speaker room comes out ~65% simultaneous, which leaves
+ * almost no single-speaker frames to measure attribution against and looks
+ * nothing like a conversation. Turns are handed round so the same speaker
+ * never takes two in a row, and `overlapFraction` of them start before the
+ * previous one has finished, which is where genuine overlap comes from.
+ *
+ * @returns {Array<{ speaker, start, end }>} in samples
+ */
+function turnSchedule({ n, sampleRate, speakers, turnSecRange, gapSecRange,
+                        overlapFraction, overlapSecRange, rand }) {
+  const pick = ([lo, hi]) => lo + rand() * (hi - lo);
+  const turns = [];
+  let cursor = Math.round(pick([0.1, 0.4]) * sampleRate);
+  let last = -1;
+  while (cursor < n) {
+    // never the same speaker twice running
+    let s = Math.floor(rand() * speakers);
+    if (s === last && speakers > 1) s = (s + 1 + Math.floor(rand() * (speakers - 1))) % speakers;
+    const len = Math.round(pick(turnSecRange) * sampleRate);
+    const start = cursor;
+    const end = Math.min(n, start + len);
+    turns.push({ speaker: s, start, end });
+    last = s;
+    if (rand() < overlapFraction) {
+      cursor = Math.max(start + 1, end - Math.round(pick(overlapSecRange) * sampleRate));
+    } else {
+      cursor = end + Math.round(pick(gapSecRange) * sampleRate);
+    }
+  }
+  return turns;
+}
+
+/** Raised-cosine turn mask for one speaker, so gating never clicks. */
+function turnMask(n, turns, speaker, rampSamples) {
+  const mask = new Float64Array(n);
+  for (const t of turns) {
+    if (t.speaker !== speaker) continue;
+    const len = t.end - t.start;
+    const ramp = Math.min(rampSamples, Math.floor(len / 2));
+    for (let i = t.start; i < t.end; i++) {
+      let g = 1;
+      const into = i - t.start;
+      const left = t.end - 1 - i;
+      if (ramp > 0 && into < ramp) g = 0.5 - 0.5 * Math.cos((Math.PI * into) / ramp);
+      if (ramp > 0 && left < ramp) g = Math.min(g, 0.5 - 0.5 * Math.cos((Math.PI * left) / ramp));
+      if (g > mask[i]) mask[i] = g;
+    }
+  }
+  return mask;
+}
+
+/**
+ * A room of people, each wearing their own lav, each mic hearing everyone.
+ *
+ * This is the fixture the auto-mix attribution is measured against, and every
+ * quantity it applies is returned as ground truth. Built only from the
+ * primitives above — in particular the delays are FFT/Lanczos based, so a test
+ * never validates the engine's own interpolator with itself.
+ *
+ * Mic m is worn by speaker m. Mic 0 is given no clock offset, which makes it
+ * the evaluation timebase; `trueSpeaker` is at the EMISSION timebase, so a
+ * comparison against it must allow a guard band around transitions (attribution
+ * cannot be right within one analysis window of an onset in any case).
+ *
+ * @param {object} opts
+ *   speakers    number of participants (mics === speakers)
+ *   gains       gains[s] = dB per successive utterance for speaker s
+ *   distances   distances[m][s] in metres; defaults to 0.2 own / 1.5 others
+ *   bleedFloorDb  reverberant floor, positive dB
+ *   trimDb      per-mic preamp trim, applied after bleed and noise
+ *   noiseSnrDb  per-mic broadband noise
+ *   offsetSec   per-mic clock offset (mic 0 is forced to 0)
+ *   driftPpm    per-mic clock drift; non-zero costs a Lanczos resample per mic
+ * @returns {{ mics, sampleRate, voiced, trueSpeaker, emit, micOffsetSamples,
+ *             micDriftPpm, distances, bleedDb, trimDb, talkDb }}
+ */
+export function speakerRoom({
+  seconds = 30,
+  sampleRate = 8000,
+  speakers = 3,
+  gains = null,
+  distances = null,
+  bleedFloorDb = 16,
+  bleedLowpassHz = 2500,
+  trimDb = null,
+  noiseSnrDb = 30,
+  offsetSec = null,
+  driftPpm = null,
+  turnSecRange = [1.5, 4.0],
+  gapSecRange = [0.1, 0.5],
+  overlapFraction = 0.12,
+  overlapSecRange = [0.3, 0.8],
+  seed = 1,
+} = {}) {
+  const K = speakers;
+  const n = Math.round(seconds * sampleRate);
+  const talkDb = gains || Array.from({ length: K }, () => [0]);
+  const dist = distances || Array.from({ length: K }, (_, m) =>
+    Array.from({ length: K }, (_, s) => (m === s ? 0.2 : 1.5)));
+  const trim = trimDb || new Array(K).fill(0);
+  const offs = offsetSec ? offsetSec.slice() : new Array(K).fill(0);
+  offs[0] = 0; // mic 0 defines the timebase
+  const ppm = driftPpm || new Array(K).fill(0);
+
+  const turns = turnSchedule({
+    n, sampleRate, speakers: K, turnSecRange, gapSecRange,
+    overlapFraction, overlapSecRange, rand: mulberry32(seed * 31 + 17),
+  });
+  const ramp = Math.round(0.02 * sampleRate);
+
+  // Per-speaker emission: speech, per-utterance level, then gated to that
+  // speaker's turns so the room takes turns instead of everyone talking at once.
+  const emit = [];
+  const voiced = [];
+  for (let s = 0; s < K; s++) {
+    const base = speechLike({ seconds, sampleRate, seed: seed + s * 101 });
+    const g = gainUtterances(base.signal, base.voiced, talkDb[s]);
+    const mask = turnMask(n, turns, s, ramp);
+    const sig = new Float64Array(n);
+    const v = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      sig[i] = g.signal[i] * mask[i];
+      v[i] = g.voiced[i] && mask[i] > 0.5 ? 1 : 0;
+    }
+    emit.push(sig);
+    voiced.push(v);
+  }
+
+  // trueSpeaker at the emission timebase: -1 nobody, -2 more than one.
+  const trueSpeaker = new Int8Array(n);
+  for (let i = 0; i < n; i++) {
+    let who = -1;
+    for (let s = 0; s < K; s++) {
+      if (!voiced[s][i]) continue;
+      who = who === -1 ? s : -2;
+      if (who === -2) break;
+    }
+    trueSpeaker[i] = who;
+  }
+
+  // Each mic sums every speaker, delayed by its acoustic path and attenuated
+  // by distance.
+  const bleedDb = [];
+  const mics = [];
+  for (let m = 0; m < K; m++) {
+    const acc = new Float64Array(n);
+    const row = [];
+    for (let s = 0; s < K; s++) {
+      const d = dist[m][s];
+      const bDb = bleedDbFor(d, bleedFloorDb);
+      row.push(bDb);
+      let delayed = fftDelay(emit[s], (d / SPEED_OF_SOUND) * sampleRate);
+      // Bleed is DULL. Sound that has crossed a room and a shirt arrives
+      // low-passed and smeared, and modelling it as a clean gain-and-delay
+      // copy made the fixture spectrally identical to the direct signal —
+      // which quietly meant no test could exercise the spectral-tilt cue at
+      // all. The speaker's own mic (s === m) is left dry.
+      if (s !== m && bleedLowpassHz && bleedLowpassHz < sampleRate / 2 - 100) {
+        delayed = biquadFilter(delayed, rbj('lowpass', bleedLowpassHz, sampleRate));
+        delayed = biquadFilter(delayed, rbj('lowpass', bleedLowpassHz, sampleRate));
+      }
+      const g = Math.pow(10, bDb / 20);
+      for (let i = 0; i < n; i++) acc[i] += delayed[i] * g;
+    }
+    bleedDb.push(row);
+
+    let mic = addNoise(acc, noiseSnrDb, seed * 7 + m * 37 + 1);
+    // The preamp acts on direct, bleed and noise alike — applying trim last is
+    // what makes it a trim rather than a per-source level.
+    if (trim[m] !== 0) mic = scale(mic, trim[m]);
+
+    // Clock: a static offset, plus drift when asked for.
+    const offSamples = offs[m] * sampleRate;
+    if (ppm[m] !== 0) {
+      const b = ppm[m] * 1e-6;
+      mic = varyingDelay(mic, (i) => offSamples + b * i);
+    } else if (offSamples !== 0) {
+      mic = fftDelay(mic, offSamples);
+    }
+    mics.push(mic);
+  }
+
+  return {
+    mics,
+    sampleRate,
+    voiced,
+    trueSpeaker,
+    turns,
+    emit,
+    micOffsetSamples: offs.map((v) => v * sampleRate),
+    micDriftPpm: ppm.slice(),
+    distances: dist,
+    bleedDb,
+    trimDb: trim.slice(),
+    talkDb,
+  };
+}
+
 export function allpassChain(signal, coeffs = [0.5, -0.3, 0.7]) {
   let x = signal;
   for (const a of coeffs) {

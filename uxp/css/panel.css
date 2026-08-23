@@ -219,6 +219,18 @@ body {
     opacity: 0.8;
 }
 
+/* Beta marker for a feature still being proven on real material. Sits inside a
+   .card-label, so it inherits the mono/uppercase treatment and only needs the
+   colour and the box. UXP drops the row gap, hence the explicit margin. */
+.beta-tag {
+    margin-left: 6px;
+    padding: 1px 4px;
+    border: 1px solid var(--yellow);
+    border-radius: 3px;
+    color: var(--yellow);
+    background-color: #f7c94a18;
+}
+
 .section-head {
     display: flex;
     align-items: center;
@@ -755,3 +767,8 @@ input[type="text"] {
 }
 .tool-ok      { color: var(--green); border-color: #4af79a55; }
 .tool-missing { color: var(--red);   border-color: var(--red); }
+
+/* Stepper: reuses the segmented control's look, but the middle cell is a
+   readout rather than a choice — it must not invite a click. */
+.stepper .seg-opt { min-width: 34px; }
+.stepper .seg-opt[data-readout] { cursor: default; min-width: 62px; }

@@ -10,10 +10,13 @@ const { pathToFileURL } = require("url");
 const SRC = path.resolve(__dirname, "..", "..", "engine", "src");
 const esm = (file) => import(pathToFileURL(path.join(SRC, file)).href);
 
+// Keep in step with MODULES in uxp/scripts/build-engine.js — this list is a
+// second, hand-maintained copy, and a module missing here is a module whose
+// export parity nothing checks.
 const MODULES = [
-    "align.js", "coarse.js", "coherence.js", "fft.js", "gccPhat.js", "job.js",
-    "lattice.js", "pathSolver.js", "phaseAlign.js", "polarity.js",
-    "varyDelay.js", "wav.js"
+    "align.js", "autoMix.js", "coarse.js", "coherence.js", "decimate.js",
+    "fft.js", "gccPhat.js", "job.js", "lattice.js", "pathSolver.js",
+    "phaseAlign.js", "polarity.js", "varyDelay.js", "wav.js"
 ];
 
 test("every generated module exports exactly what the ESM source does", async () => {

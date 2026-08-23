@@ -1,9 +1,10 @@
 # Unphased native addon (`unphased.uxpaddon`)
 
 The UXP plugin has no `child_process`, so it cannot shell out to ffmpeg the way
-the CEP panel does. This addon is the replacement: a statically linked,
-audio-only FFmpeg 8.1.2 wrapped in a UXP hybrid addon, exposing exactly the two
-operations `engine/src/decode.js` used to get from the command line.
+`engine/src/decode.js` does on the headless path. This addon is the in-panel
+replacement: a statically linked, audio-only FFmpeg 8.1.2 wrapped in a UXP
+hybrid addon, exposing exactly the two operations decode.js gets from the
+command line.
 
 ```
 probe(path)
@@ -24,8 +25,8 @@ The one thing this core does that Syncitol's equivalent did not is **trim the
 first decoded frame to the exact requested sample**. A decoder handed a start
 time will return the whole frame containing it — up to ~23 ms early for AAC —
 and that error would land straight in the measured delay. `decodeMono` seeks
-backward of the window and trims, which is what putting `-ss` *after* `-i`
-bought the CEP build.
+backward of the window and trims — the same guarantee putting `-ss` *after* `-i`
+gives ffmpeg on the headless path.
 
 ## Layout
 

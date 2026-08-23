@@ -4,22 +4,22 @@
  * pipeline, same event names — but the whole thing runs in-panel instead of in
  * a spawned system Node, because UXP has no child_process.
  *
- * Differences from the CEP path, all forced by the runtime:
+ * Differences from the headless CLI path, all forced by the runtime:
  *
- *  - No scratch WAVs. ffmpeg used to write ref/target segments to job.tempDir
- *    and the engine read them back; here audio.decodeMono hands us Float64Array
- *    directly, so tempDir is unused and nothing needs cleaning up.
+ *  - No scratch WAVs. The CLI has ffmpeg write ref/target segments to
+ *    job.tempDir and reads them back; here audio.decodeMono hands us a
+ *    Float64Array directly, so tempDir is unused and nothing needs cleaning up.
  *
- *  - Rendering decodes ONE CHANNEL AT A TIME at the source's native rate. The
- *    CEP path re-extracted the whole interleaved stream to a WAV and read every
- *    channel out of it; holding a 5-minute 96 kHz stereo file in memory as
- *    Float64 is ~460 MB, and UXP's heap is shared with Premiere. Decoding per
- *    channel caps the peak at one channel's worth, and `pan=mono|c0=cN` is a
- *    thing the addon does anyway.
+ *  - Rendering decodes ONE CHANNEL AT A TIME at the source's native rate,
+ *    rather than extracting the whole interleaved stream to a WAV and reading
+ *    every channel out of it. Holding a 5-minute 96 kHz stereo file in memory
+ *    as Float64 is ~460 MB, and UXP's heap is shared with Premiere. Decoding
+ *    per channel caps the peak at one channel's worth, and `pan=mono|c0=cN` is
+ *    a thing the addon does anyway.
  *
  *  - Progress arrives as callbacks rather than NDJSON on stdout. The event
- *    objects are identical, so main.js reads them the same way the CEP panel
- *    read the engine's output.
+ *    objects are identical either way, so main.js and the CLI's consumers read
+ *    the same shapes.
  *
  * Everything else — pairing, the job schema, and the entire DSP — is the shared
  * engine, unchanged.
@@ -113,7 +113,7 @@ async function renderOutput({ job, pair, correction, fallback }) {
 
 /**
  * @param {object} job normalized job (see engine/src/job.js) — pairs carry
- *   absolute outputPaths, exactly as the CEP panel builds them.
+ *   absolute outputPaths.
  * @param {function} onEvent called with { event: 'start'|'phase'|'result'|'error'|'done', ... }
  * @returns {Promise<{results: object[], ok: number, failed: number, cancelled: boolean}>}
  */

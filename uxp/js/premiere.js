@@ -1,9 +1,9 @@
 /**
  * Unphased — premiere.js
  * Host operations via the Premiere UXP DOM API (require("premierepro")).
- * This is the replacement for the CEP panel's jsx/host.jsx; the entry points
- * keep the same names and return the same shapes, so main.js reads one contract
- * whichever runtime it is in.
+ * Every host read and edit the panel performs goes through here, and each entry
+ * point returns a plain serialisable shape so main.js never touches a live
+ * Premiere object.
  *
  * Editing is transactional: build Actions, add them with
  * compoundAction.addAction(action), run them inside
@@ -11,26 +11,26 @@
  * Everything must be built synchronously inside the callback — an await in
  * there lets the host mutate underneath us and the objects go "no longer valid".
  *
- * Three differences from the ExtendScript host, all forced by the API:
+ * Three constraints the UXP DOM imposes, all of them shaping the code below:
  *
- *  - **No nodeId.** ExtendScript gave every track item a stable nodeId; UXP
- *    exposes nothing equivalent. Clips are addressed by (trackIndex, clipIndex)
+ *  - **No nodeId.** There is no stable per-track-item identifier, so clips
+ *    cannot be addressed by identity. They are addressed by (trackIndex, clipIndex)
  *    with the start tick as a sanity check, and items are always re-fetched
  *    fresh from their track rather than held across an await.
  *
  *  - **No QE addTracks — and none needed.** createOverwriteItemAction creates
- *    the track when the index passed exceeds the track count, so the CEP panel's
- *    undocumented QE dance disappears. ensureTracks() survives only to report
- *    the count and, if a build ever stops auto-creating, to say so plainly.
+ *    the track when the index passed exceeds the track count, so no undocumented
+ *    QE dance is required. ensureTracks() survives only to report the count and,
+ *    if a build ever stops auto-creating, to say so plainly.
  *
  *  - **Selection is read per clip.** Sequence.getSelection() returns a
  *    TrackItemSelection with no positional mapping back to tracks, so
- *    trackItem.getIsSelected() is the reliable route here — the opposite of
- *    CEP, where per-clip isSelected() was the unreliable one.
+ *    trackItem.getIsSelected() is the reliable route here.
  */
 "use strict";
 
 const ppro = require("premierepro");
+const volume = require("./volume.js");
 
 const BIN_NAME = "Unphased";
 
@@ -59,9 +59,9 @@ function describe(obj) {
     } catch (e) { return "?"; }
 }
 
-// Every entry point resolves to { ok: true, ... } or { ok: false, error }, the
-// same contract host.jsx had — the panel shows the error, nothing throws into
-// an unhandled rejection.
+// Every entry point resolves to { ok: true, ... } or { ok: false, error } and
+// never rejects — the panel shows the error rather than losing it to an
+// unhandled rejection.
 function wrap(fn) {
     return async function (...args) {
         try {
@@ -126,7 +126,7 @@ const ping = wrap(async function () {
     try { seq = project ? await val(project.getActiveSequence()) : null; } catch (e) { /* none open */ }
     return {
         ok: true,
-        version: "1.0.0",
+        version: "1.1.0",
         appVersion: (ppro.version || (ppro.Constants && ppro.Constants.version) || "UXP"),
         project: project ? String(await val(project.name)) : null,
         hasActiveSequence: !!seq
@@ -343,8 +343,8 @@ async function findInBin(bin, fileName) {
  * payload: { items: [{ id, path, fileName, trackIndex, startSeconds, muteNodeId }] }
  *
  * `trackIndex` may exceed the sequence's current audio track count —
- * createOverwriteItemAction creates the track. That is the whole reason the
- * QE addTracks hack from the CEP host is absent here.
+ * createOverwriteItemAction creates the track. That is the whole reason no QE
+ * addTracks hack is needed here.
  *
  * Two transactions, not one: placement and muting are independent, and a
  * placement that fails must not roll back the mutes of clips that did land
@@ -424,10 +424,10 @@ const importAndPlace = wrap(async function (payload) {
 });
 
 /**
- * Report the audio track count. Unlike the CEP host this never has to add
- * tracks — createOverwriteItemAction does it — but the panel still asks, so it
- * can say how many tracks a run will add and so a future host that stops
- * auto-creating fails loudly instead of silently dropping clips.
+ * Report the audio track count. This never has to add tracks —
+ * createOverwriteItemAction does it — but the panel still asks, so it can say
+ * how many tracks a run will add and so a future host that stops auto-creating
+ * fails loudly instead of silently dropping clips.
  */
 const ensureTracks = wrap(async function (arg) {
     const project = await getActiveProject();
@@ -443,9 +443,190 @@ const ensureTracks = wrap(async function (arg) {
     };
 });
 
+/**
+ * Find a track item's Volume > Level parameter, and say what it saw either way.
+ *
+ * Matching by parameter NAME does not work: Component has getDisplayName(), but
+ * ComponentParam does not — so every name read came back empty and nothing ever
+ * matched. Parameters are identified by behaviour instead: within the Volume
+ * component, take the keyframable one whose value is a number. That separates
+ * Level from Bypass (boolean) without depending on an index the API never
+ * promises.
+ *
+ * Returns { param, trace } — trace is a human-readable account of the chain,
+ * logged when the lookup fails so a mismatch is diagnosable from the panel
+ * instead of needing a debugger attached to Premiere.
+ */
+async function findLevelParam(trackItem) {
+    const trace = [];
+    if (typeof trackItem.getComponentChain !== "function") {
+        trace.push("trackItem has no getComponentChain()");
+        return { param: null, componentIndex: -1, paramIndex: -1, trace };
+    }
+    const chain = await val(trackItem.getComponentChain());
+    if (!chain || typeof chain.getComponentCount !== "function") {
+        trace.push("getComponentChain() returned " + (chain ? describe(chain) : "nothing"));
+        return { param: null, componentIndex: -1, paramIndex: -1, trace };
+    }
+    const count = await val(chain.getComponentCount());
+    trace.push(count + " component(s)");
+
+    let fallback = null;
+    for (let c = 0; c < count; c++) {
+        const comp = await val(chain.getComponentAtIndex(c));
+        if (!comp) continue;
+        let match = "";
+        let display = "";
+        try { match = String(await val(comp.getMatchName())); } catch (e) { /* optional */ }
+        try { display = String(await val(comp.getDisplayName())); } catch (e) { /* optional */ }
+        const params = await val(comp.getParamCount());
+        const isVolume = /volume/i.test(match) || /volume/i.test(display);
+        trace.push(`  [${c}] ${display || "?"} (${match || "?"}) — ${params} param(s)${isVolume ? " <- volume" : ""}`);
+
+        for (let p = 0; p < params; p++) {
+            const param = await val(comp.getParam(p));
+            if (!param) continue;
+            let keyframable = true;
+            if (typeof param.areKeyframesSupported === "function") {
+                try { keyframable = !!(await val(param.areKeyframesSupported())); } catch (e) { keyframable = false; }
+            }
+            let value = null;
+            try { value = await val(param.getValueAtTime(await val(trackItem.getInPoint()))); } catch (e) { /* optional */ }
+            // getValueAtTime does not return a bare number here — it hands back
+            // a wrapper — so the value cannot be used to tell Level from Bypass.
+            // Report what it actually is rather than "object", so the next
+            // change is informed instead of another guess.
+            const shape = value === null ? "null"
+                : typeof value === "object" ? `object{${describe(value)}}`
+                    : `${typeof value} ${value}`;
+            trace.push(`      param[${p}] keyframable=${keyframable} value=${shape}`);
+            if (!keyframable) continue;
+
+            // Ask the parameter whether it will take the kind of value we mean
+            // to write, instead of inferring it from a name or a type.
+            // createKeyframe throws when the value is incompatible with the
+            // parameter's type, so a parameter that accepts a 0..1 float IS a
+            // level-shaped parameter — which is the only property we actually
+            // care about. Matching on getDisplayName() failed because
+            // ComponentParam has no such method; matching on the value's type
+            // failed because getValueAtTime returns a wrapper, not a number.
+            let accepts = false;
+            try {
+                accepts = !!param.createKeyframe(0.5);
+            } catch (e) {
+                trace.push(`      param[${p}] rejects a float: ${String((e && e.message) || e)}`);
+            }
+            if (!accepts) continue;
+
+            // Inside a component we positively identified as Volume, take it.
+            // Outside one, keep it as a last resort rather than silently
+            // automating some unrelated effect.
+            if (isVolume) return { param, componentIndex: c, paramIndex: p, component: display || match, trace };
+            if (!fallback) fallback = { param, componentIndex: c, paramIndex: p, component: display || match };
+        }
+    }
+    if (fallback) {
+        trace.push("no component identified as Volume — using the first keyframable parameter found");
+        return { param: fallback.param, componentIndex: fallback.componentIndex,
+            paramIndex: fallback.paramIndex, component: fallback.component, trace };
+    }
+    return { param: null, componentIndex: -1, paramIndex: -1, trace };
+}
+
+/**
+ * Write volume automation onto clips that are already on the timeline.
+ *
+ * KEYFRAME TIMES ARE IN SOURCE TIME, NOT TIMELINE TIME. This is the single
+ * thing that makes UXP keyframes look broken: write them at clip-relative times
+ * and Premiere stores them somewhere off the clip, the Effect Controls panel
+ * shows nothing, and the parameter just ends up at the last value written. A
+ * clip with no underlying footage (title, graphic, adjustment layer) has an
+ * in-point of one hour, which is why the symptom looks so arbitrary. The caller
+ * passes `sourceStartSec` — the clip's own in-point plus however far into the
+ * clip the analysed interval began — and every key is placed relative to that.
+ *
+ * Ducking is applied RELATIVE to whatever level the editor already set, so this
+ * never overwrites an existing mix decision, only leans on it.
+ *
+ * @param {object} payload { items: [{ id, trackIndex, clipIndex, sourceStartSec,
+ *                                     keys: [{ timeSec, gainDb }] }] }
+ */
+const writeVolumeKeyframes = wrap(async function (payload) {
+    const project = await getActiveProject();
+    const sequence = await getActiveSequence(project);
+    const items = (payload && payload.items) || [];
+    const results = [];
+
+    for (const item of items) {
+        const res = { id: item.id, ok: false, written: 0, error: null, trace: null };
+        // Kept outside the try so a failure INSIDE the transaction still reports
+        // which component and parameter it chose — otherwise "Invalid
+        // parameter" says nothing about what was invalid.
+        let trace = null;
+        try {
+            const track = await val(sequence.getAudioTrack(item.trackIndex));
+            const clips = track.getTrackItems(TRACK_ITEM_CLIP, false) || [];
+            const clip = clips[item.clipIndex];
+            if (!clip) throw new Error(`clip ${item.clipIndex} not found on track ${item.trackIndex + 1}`);
+
+            // Discovery pass: which component, which parameter, and what level
+            // is already set. Every await in here is a yield, and a yield is
+            // what invalidates these objects — so nothing found here is kept.
+            const found = await findLevelParam(clip);
+            trace = found.trace.join(" | ");
+            res.chose = `${found.component || "?"} component[${found.componentIndex}] param[${found.paramIndex}]`;
+            if (!found.param) {
+                throw new Error("no keyframable Volume > Level parameter on this clip. Chain: " +
+                    found.trace.join(" | "));
+            }
+            let current = null;
+            try {
+                current = await val(found.param.getValueAtTime(await val(clip.getInPoint())));
+            } catch (e) { /* falls back to unity inside duckLevel */ }
+            const levels = volume.levelKeyframes(item.keys, current);
+            const startTicks = await val(clip.getInPoint());
+
+            // Write pass: re-fetch everything by the indices discovery found,
+            // then build and commit with NO await in between. Holding `param`
+            // across the discovery awaits is what produced "The script object
+            // is no longer valid" — this file's own header warns about it, and
+            // I still did it. The re-fetch chain below is the last yield.
+            const track2 = await val(sequence.getAudioTrack(item.trackIndex));
+            const clip2 = (track2.getTrackItems(TRACK_ITEM_CLIP, false) || [])[item.clipIndex];
+            if (!clip2) throw new Error("clip disappeared between passes");
+            const chain2 = await val(clip2.getComponentChain());
+            const comp2 = await val(chain2.getComponentAtIndex(found.componentIndex));
+            const param2 = await val(comp2.getParam(found.paramIndex));
+            if (!param2) throw new Error("parameter disappeared between passes");
+
+            await lockedTransaction(project, "Unphased auto-mix", (compound) => {
+                if (typeof param2.createSetTimeVaryingAction === "function") {
+                    compound.addAction(param2.createSetTimeVaryingAction(true));
+                }
+                for (const k of levels) {
+                    const kf = param2.createKeyframe(k.level);
+                    kf.position = startTicks
+                        ? startTicks.add(ppro.TickTime.createWithSeconds(k.timeSec))
+                        : ppro.TickTime.createWithSeconds(item.sourceStartSec + k.timeSec);
+                    compound.addAction(param2.createAddKeyframeAction(kf));
+                }
+            });
+            res.ok = true;
+            res.written = levels.length;
+        } catch (err) {
+            res.error = String((err && err.message) || err);
+            res.trace = trace;
+        }
+        results.push(res);
+    }
+
+    return { ok: results.every((r) => r.ok), results };
+});
+
 module.exports = {
     BIN_NAME,
     ping,
+    writeVolumeKeyframes,
     getProjectInfo,
     getSequenceInfo,
     getSelectionOnly,

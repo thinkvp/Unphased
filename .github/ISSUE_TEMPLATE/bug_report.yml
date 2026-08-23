@@ -10,17 +10,6 @@ body:
         against itself — press **Sources** and check the source-channel
         assignment first. That is a media-layout mix-up, not an engine fault.
 
-  - type: dropdown
-    id: plugin
-    attributes:
-      label: Which plugin
-      options:
-        - UXP (Premiere 26+)
-        - CEP (Premiere 2024/2025)
-        - Not sure
-    validations:
-      required: true
-
   - type: input
     id: version
     attributes:

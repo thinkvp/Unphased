@@ -1,13 +1,11 @@
 name: Release
 
-# Push a tag like v0.3.0 to publish both plugins off one tag.
+# Push a tag like v0.3.0 to publish the plugin.
 #
 #   Unphased-UXP-<version>.ccx           Premiere 26+, Windows and macOS
-#   Unphased-CEP-Setup-<version>.exe     Premiere 24/25, Windows
 #
 # No signing step: independent (non-Marketplace) .ccx distribution does not
-# require Adobe Developer Distribution portal signing, and the CEP panel is
-# installed by junction with PlayerDebugMode rather than as a signed ZXP.
+# require Adobe Developer Distribution portal signing.
 #
 # Two jobs. build-addon-mac compiles the universal macOS decode addon from
 # source (it is not committed — it cannot be built on a Windows dev machine).
@@ -116,9 +114,8 @@ jobs:
         run: |
           tag="${RELEASE_TAG#v}"
           uxp_ver="$(node -p "require('./uxp/manifest.json').version")"
-          cep_ver="$(tr -d '[:space:]' < cep/VERSION)"
-          if [ "$tag" != "$uxp_ver" ] || [ "$tag" != "$cep_ver" ]; then
-            echo "Tag $RELEASE_TAG != uxp/manifest.json ($uxp_ver) / cep/VERSION ($cep_ver)"
+          if [ "$tag" != "$uxp_ver" ]; then
+            echo "Tag $RELEASE_TAG != uxp/manifest.json ($uxp_ver)"
             exit 1
           fi
           echo "Releasing $uxp_ver ✓"
@@ -174,27 +171,6 @@ jobs:
         # engine-ci.yml covers them on Linux where we do install it.
         run: npm test
 
-      # ── CEP installer ────────────────────────────────────────────────────
-      - name: Install Inno Setup
-        run: choco install innosetup -y --no-progress
-
-      # stage.js is the single include list: cep/ runtime files plus engine/
-      # copied INSIDE the extension folder, which is what makes an installed
-      # panel self-contained. See cep/scripts/stage.js.
-      - name: Stage the CEP extension
-        working-directory: cep
-        run: node scripts/stage.js
-
-      - name: Build the CEP installer
-        shell: pwsh
-        working-directory: cep
-        run: |
-          $version = (Get-Content VERSION).Trim()
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-            installer\unphased-cep-installer.iss /DMyAppVersion=$version
-          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
-          Get-ChildItem dist/*.exe | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,2)}}
-
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -203,7 +179,7 @@ jobs:
         # this workflow — so the release may already exist, with hand-written
         # notes. In that case just attach the assets.
         run: |
-          assets=(uxp/dist/*.ccx cep/dist/*.exe)
+          assets=(uxp/dist/*.ccx)
           for a in "${assets[@]}"; do
             test -f "$a" || { echo "::error::release asset missing: $a"; exit 1; }
             echo "  $a"

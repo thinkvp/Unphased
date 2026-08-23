@@ -6,9 +6,8 @@
 
 - [ ] `cd engine && npm test`
 - [ ] `cd uxp && npm run lint && npm test`
-- [ ] If `engine/src/` or `cep/js/pairing.js` changed: ran `cd uxp && npm run build:engine`
-      and committed the regenerated `uxp/js/engine/*` and `uxp/js/pairing.js`
-- [ ] If the UI changed in one panel, the other panel got the same edit where it applies
+- [ ] If `engine/src/` changed: ran `cd uxp && npm run build:engine` and
+      committed the regenerated `uxp/js/engine/*`
 
 ## DSP changes only
 

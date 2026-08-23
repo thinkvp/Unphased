@@ -9,13 +9,15 @@ on:
     branches: [main]
     paths:
       - 'engine/**'
-      - 'cep/**'
+      - 'uxp/js/pairing.js'
+      - 'uxp/js/volume.js'
       - 'testmedia/**'
       - '.github/workflows/engine-ci.yml'
   pull_request:
     paths:
       - 'engine/**'
-      - 'cep/**'
+      - 'uxp/js/pairing.js'
+      - 'uxp/js/volume.js'
       - 'testmedia/**'
       - '.github/workflows/engine-ci.yml'
 
@@ -44,8 +46,9 @@ jobs:
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      # engine/test/panel.test.js asserts on cep/ markup and host.jsx, so this
-      # job is the CEP extension's test suite too.
+      # The suite also covers uxp/js/pairing.js and uxp/js/volume.js, which are
+      # panel modules the engine tests require directly — hence the extra paths
+      # in the triggers above.
       #
       # UNPHASED_FFMPEG must be set: the suites default to the Windows install
       # path (C:\ffmpeg\bin\ffmpeg.exe) and silently skip when it is absent —

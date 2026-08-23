@@ -1,7 +1,7 @@
 // A stand-in for unphased.uxpaddon that decodes WAV files from disk instead of
 // calling FFmpeg. It exists so the whole UXP pipeline — audio.js padding,
 // runner.js staging, the shared DSP, WAV writing — can be exercised offline,
-// on the same testmedia fixtures the CEP panel is verified against.
+// on the same testmedia fixtures the engine suite is verified against.
 //
 // It deliberately refuses to resample: if a test asks for a rate the fixture
 // isn't already at, that's a test-design bug, not something to paper over with

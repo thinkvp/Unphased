@@ -16,14 +16,12 @@ on:
     paths:
       - 'uxp/**'
       - 'engine/src/**'
-      - 'cep/js/pairing.js'
       - 'testmedia/**'
       - '.github/workflows/uxp-ci.yml'
   pull_request:
     paths:
       - 'uxp/**'
       - 'engine/src/**'
-      - 'cep/js/pairing.js'
       - 'testmedia/**'
       - '.github/workflows/uxp-ci.yml'
 
@@ -66,18 +64,17 @@ jobs:
           }
           echo "native addon ✓"
 
-      - name: CEP <-> UXP version sync
+      - name: Version sync
         shell: bash
         run: |
           uxp_ver="$(node -p "require('./manifest.json').version")"
-          cep_ver="$(tr -d '[:space:]' < ../cep/VERSION)"
           pkg_ver="$(node -p "require('./package.json').version")"
-          if [ "$uxp_ver" != "$cep_ver" ] || [ "$uxp_ver" != "$pkg_ver" ]; then
-            echo "Version mismatch — manifest.json=$uxp_ver package.json=$pkg_ver cep/VERSION=$cep_ver"
-            echo "Bump them together: cd uxp && node scripts/set-version.js <version> --with-cep"
+          if [ "$uxp_ver" != "$pkg_ver" ]; then
+            echo "Version mismatch — manifest.json=$uxp_ver package.json=$pkg_ver"
+            echo "Bump them together: cd uxp && node scripts/set-version.js <version>"
             exit 1
           fi
-          echo "UXP & CEP both at $uxp_ver ✓"
+          echo "manifest and package.json both at $uxp_ver ✓"
 
       - name: Package check (.ccx builds)
         run: npm run build

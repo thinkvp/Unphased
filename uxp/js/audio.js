@@ -1,7 +1,8 @@
 /**
  * Unphased — audio.js
  * Wraps the bundled FFmpeg native addon and hands the DSP exactly the buffers
- * the CEP/Node engine used to get from `ffmpeg -ss … -t … -c:a pcm_f32le`.
+ * the same buffers `ffmpeg -ss … -t … -c:a pcm_f32le` produces, which is what
+ * the headless engine (`engine/cli.js`) still feeds the DSP.
  * There is no external ffmpeg/ffprobe install and — since UXP has no
  * child_process — no way to have one.
  *

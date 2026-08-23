@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { buildPairs, defaultSourceMap } = require('../../cep/js/pairing.js');
+const { buildPairs, defaultSourceMap } = require('../../uxp/js/pairing.js');
 
 function clip(over) {
   return {

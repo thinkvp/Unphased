@@ -24,10 +24,8 @@ body:
     attributes:
       label: Where it belongs
       options:
-        - UXP plugin
-        - CEP extension
-        - Both panels
-        - The shared DSP engine
+        - The panel (UI and host integration)
+        - The DSP engine
         - Not sure
     validations:
       required: true

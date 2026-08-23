@@ -3,8 +3,16 @@ engine/fixtures/
 *.log
 tmp/
 
-# CEP packaging output — scripts/stage.js staging tree and the built installer.
-cep/dist/
+# testmedia/ is DENY-BY-DEFAULT on purpose. It is the folder real recordings get
+# dropped into while testing, and production audio must never end up in a public
+# repo — so only the four files `node engine/cli.js gen-fixtures testmedia`
+# generates are allowed through, by name. Anything else you put here is ignored
+# unless you add it deliberately below.
+testmedia/*
+!testmedia/boom.wav
+!testmedia/lav1.wav
+!testmedia/lav2.wav
+!testmedia/ground-truth.json
 
 # OS / editor cruft
 .DS_Store

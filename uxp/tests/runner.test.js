@@ -4,8 +4,8 @@
 // this runs anywhere `node --test` does.
 //
 // The mono case uses testmedia/, whose ground truth (testmedia/ground-truth.json)
-// is what the CEP panel is verified against — so a regression here means the
-// UXP path stopped agreeing with the CEP one.
+// is the same one engine/test/align.e2e.test.js asserts against — so a
+// regression here means the in-panel path stopped agreeing with the engine.
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");

@@ -1,5 +1,4 @@
-// Static consistency checks for the UXP panel — the same class of guard the CEP
-// panel has in engine/test/panel.test.js. These catch the failure that looks
+// Static consistency checks for the panel. These catch the failure that looks
 // exactly like "the button does nothing": a DOM id main.js reaches for that no
 // longer exists in index.html, a script that never loads, or a packaging list
 // that has drifted from what is on disk.
@@ -8,6 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 
 const ROOT = path.resolve(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -64,12 +64,6 @@ test("the version in the footer matches the manifest and package.json", () => {
     assert.equal(reported[1], manifest.version, "ping() version != manifest version");
 });
 
-test("the CEP and UXP plugins are at the same version", () => {
-    // Both ship off one tag; CI enforces this too, but failing here is quicker.
-    const cep = fs.readFileSync(path.resolve(ROOT, "..", "cep", "VERSION"), "utf8").trim();
-    assert.equal(cep, manifest.version, "cep/VERSION != uxp/manifest.json version");
-});
-
 test("the manifest declares what a hybrid plugin needs", () => {
     assert.equal(manifest.host.app, "premierepro");
     // Hybrid addons are unsupported before 26.0 — Premiere 25.x loads the panel
@@ -89,7 +83,7 @@ test("every runtime file build-ccx stages exists", () => {
     for (const rel of singles) {
         assert.ok(fs.existsSync(path.join(ROOT, rel)), `build-ccx stages missing file ${rel}`);
     }
-    for (const f of ["main.js", "audio.js", "runner.js", "premiere.js", "pairing.js"]) {
+    for (const f of ["main.js", "audio.js", "runner.js", "premiere.js", "pairing.js", "volume.js", "automixRunner.js"]) {
         assert.ok(fs.existsSync(path.join(ROOT, "js", f)), `missing js/${f}`);
     }
 });
@@ -178,7 +172,7 @@ test("spacing does not rely on flex gap, which UXP ignores", () => {
     }
 });
 
-test("no CEP-only or UXP-unsupported markup crept into index.html", () => {
+test("no UXP-unsupported markup crept into index.html", () => {
     // UXP's native <button> ignores author backgrounds; <select>/<details> and
     // checkbox/radio inputs are avoided on purpose (see css/panel.css header).
     for (const tag of ["<button", "<select", "<details", "<summary", 'type="checkbox"', 'type="radio"']) {
@@ -186,4 +180,62 @@ test("no CEP-only or UXP-unsupported markup crept into index.html", () => {
     }
     assert.ok(!/\shidden(\s|>|=)/.test(html),
         "use style=\"display:none\" rather than the hidden attribute");
+});
+
+test("every control main.js binds actually exists in index.html", () => {
+    // A deleted element used to throw inside the binder, which aborted boot and
+    // left the panel unable to find the active sequence — a symptom with no
+    // visible connection to the cause. The binders now fail soft, but the real
+    // fix is not shipping a mismatch in the first place.
+    const js = fs.readFileSync(path.join(ROOT, "js", "main.js"), "utf8");
+    const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+    const bound = [...js.matchAll(/bind(?:Segment|Stepper)\("([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(bound.length >= 4, `only found ${bound.length} bound controls — did the binders get renamed?`);
+    for (const id of bound) {
+        assert.ok(html.includes(`id="${id}"`), `main.js binds "${id}" but index.html has no such element`);
+    }
+});
+
+// The panel and the engine agree on a parameter vocabulary that nothing else
+// checks: main.js builds the params object by hand, and align.js consumes it by
+// hand. A key that exists on one side only is silently ignored rather than
+// rejected, so the setting simply stops working with no error anywhere.
+function paramsSentByPanel() {
+    const start = mainJs.indexOf("function readParams");
+    assert.ok(start > 0, "readParams not found in main.js");
+    // The next function definition marks readParams' own closing brace —
+    // resilient to whatever follows it, unlike pinning to a specific name.
+    const end = mainJs.indexOf("function ", start + "function readParams".length);
+    assert.ok(end > start, "expected another function to follow readParams");
+    return [...mainJs.slice(start, end).matchAll(/^\s{8}(\w+):/gm)].map((m) => m[1]);
+}
+
+test("params the panel sends are all understood by the engine", async () => {
+    const { DEFAULT_PARAMS } = await import(
+        pathToFileURL(path.resolve(ROOT, "..", "engine", "src", "align.js")).href);
+    const sent = paramsSentByPanel();
+    assert.ok(sent.length >= 2, "expected readParams to send some params");
+    for (const key of sent) {
+        assert.ok(key in DEFAULT_PARAMS, `panel sends "${key}" which the engine ignores`);
+    }
+});
+
+test("the panel does not pin the search window", () => {
+    // maxShiftMs is derived per clip by widening on evidence. A UI that pins it
+    // reintroduces the failure this replaced: too narrow a window returns a
+    // confident wrong answer rather than an error.
+    assert.ok(!paramsSentByPanel().includes("maxShiftMs"),
+        "the panel should leave maxShiftMs on auto");
+});
+
+test("stepper controls carry the parts their binder needs", () => {
+    const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+    for (const m of html.matchAll(/<div id="([^"]+)" class="seg stepper">([\s\S]*?)<\/div>\s*<\/div>/g)) {
+        const [, id, body] = m;
+        assert.ok(/data-readout=/.test(body), `stepper "${id}" has no [data-readout] cell to write into`);
+        const steps = [...body.matchAll(/data-step="(-?\d+)"/g)].map((s) => Number(s[1]));
+        assert.equal(steps.length, 2, `stepper "${id}" should have exactly two step buttons`);
+        assert.ok(steps.some((v) => v < 0) && steps.some((v) => v > 0),
+            `stepper "${id}" needs one decrement and one increment`);
+    }
 });

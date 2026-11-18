@@ -35,10 +35,10 @@ generated files are committed so the plugin folder loads as-is; `npm run lint`
 in `uxp/` regenerates them and fails if they have drifted from the source
 `node --test` actually verifies.
 
-Two panel modules run the other way round. `uxp/js/pairing.js` (clip-pair
-matching) and `uxp/js/volume.js` (Premiere's Level scale) are hand-maintained
-UMD files that the *engine* test suite requires directly, so they are unit-tested
-without a host even though they live in the plugin tree.
+One panel module runs the other way round. `uxp/js/pairing.js` (clip-pair
+matching) is a hand-maintained UMD file that the *engine* test suite requires
+directly, so it is unit-tested without a host even though it lives in the
+plugin tree.
 
 Three engine modules are deliberately **not** carried into the panel:
 `decode.js` (spawns ffmpeg), `progress.js` (writes NDJSON to stdout) and
@@ -75,7 +75,7 @@ Five steps, whether driven from the panel or from `engine/cli.js`.
 | stage | module | notes |
 |---|---|---|
 | coarse offset | `coarse.js` | 1 s GCC-PHAT blocks, confidence-gated weighted median; rejects uncorrelated pairs via lag-agreement test |
-| search window | `align.js` | `maxShiftMs: 'auto'` walks 250 → 500 → 1000 → 2000 ms, widening only when the winner sits past 85% of the window (a peak clipped by the window edge); job handles are sized for the ceiling so a widened pass has real audio to read |
+| search window | `align.js` | `maxShiftMs: 'auto'` searches the full ±2000 ms (`AUTO_SHIFT_MAX`) in one pass on a decimated copy, which is cheap enough not to need a ladder of narrower windows; job handles are sized for that ceiling |
 | band weights | `coherence.js` | magnitude-squared coherence per band at the coarse lag; the static estimate is then re-run weighted |
 | drift lattice | `lattice.js` | 8192-sample Hann windows, hop 4096, ±15 ms residual search, coherence-weighted |
 | path solve | `pathSolver.js` | Viterbi: slope-limited (`driftAgility`, engine-only — the panel no longer exposes it), quadratic penalty, silent rows coast; parabolic sub-sample refine; linear interp + box smoothing to per-sample curve |
@@ -126,6 +126,15 @@ The `nullDepthDb` gain term is clamped non-negative on purpose: an unclamped lea
 gain goes negative for an inverted signal and reports a deep null for audio that would
 *cancel* the reference when summed — the exact fault the metric exists to catch.
 
+The reported `nullDepthDb` is `windowedNullDepthDb`: the same measure over
+2-second windows, each with its own gain, and the median of the windows within
+30 dB of the clip's loud ones. One gain for a whole clip marks a long take down
+for something that is not a timing error — the level ratio between a lav and a
+camera mic moves as people turn and lean. A real 43-minute interview read
+1.5 dB whole-clip and 4.9 dB windowed, with the timing verified exact to
+0.1 ms. Out-of-time or inverted audio still fails, because each window's gain
+stays clamped non-negative. The whole-clip figure is kept as `nullDepthWholeDb`.
+
 Lag convention everywhere: positive lag = target LAGS reference by that many samples.
 
 ## Source channel resolution (important)
@@ -164,148 +173,6 @@ outputPath), `error`, `done`. The CLI's exit code adds nothing the events don't:
 `normalizeJob` is shared and pure. `tempDir` is optional and unused by UXP, which
 never writes a scratch file — creating it is the caller's job (`cli.js` does it).
 
-Auto-mix uses a deliberately different job shape — `mics`, not `pairs`, validated
-by `normalizeAutoMixJob` — so a job file is unambiguously one kind or the other.
-Its events reuse the same vocabulary, plus `start` carrying `mode: 'automix'` and
-one `automix` summary event with per-pair geometry (`spreadMs` is the first
-number to check on real material) and per-mic behaviour. In curve mode the
-per-mic `result` carries `keys`/`maxErrorDb` instead of `outputPath`.
-
-## Auto-mix (engine/src/autoMix.js)
-
-A second, independent operation over the same engine: given N mics that are
-**equal participants**, decide per frame whose mic the current speaker is on and
-duck the rest. No reference, no targets — that asymmetry belongs to align.js and
-must not leak in, because the driving case is three lavs on three people where
-every mic is someone's close mic and everyone else's bleed.
-
-Driven from the panel and from `node engine/cli.js automix <job.json>`.
-
-### Why three tiers
-
-On separate recorders the lag between two mics is
-
-```
-measuredLag_ij(t) = clockOffset_ij + drift_ij*t + acousticTDOA_ij(t)
-                    \__ seconds __/  \__ ms __/   \__ +/-3 ms/m __/
-                                                   the entire signal
-```
-
-The lead/lag sign carries nothing until the first two terms are removed. The
-obvious reuse is a trap: `buildLattice` + `solvePath` at `maxDriftMs: 15` would
-absorb the acoustic swing **as drift**, because the Viterbi slope penalty exists
-to make a lag series smooth and the non-smooth part is what we want.
-
-| tier | purpose | window / hop @ 8 kHz | search |
-|---|---|---|---|
-| sync | static offset per pair (`pairSyncOffset`) | `estimateStaticOffset`, 24 blocks | ±2000 ms |
-| baseline | affine clock model `a + b*t` (`fitPairBaseline`) | 2048 / 2048 | ±30 ms |
-| attribute | per-frame acoustic TDOA (`attributeSpeakers`) | 512 / 128 (62.5 fps) | ±8 ms |
-
-Attribution runs on audio decimated 48 k → 8 k. One sample is 0.125 ms ≈ 4.3 cm
-against a ~3 ms/m discriminator, and it keeps K mics resident in 19 MB each
-rather than 115 MB.
-
-### Cues and scoring
-
-`attributeSpeakers` returns cues, not a decision — level (`nLevelDb`, normalised
-against each mic's own p95 so recorders trimmed differently compare), lead
-(`lead`, summed over pairs and normalised by summed confidence), and
-`coherence`. `autoMixGains` combines them, so an ablation on the scoring weights
-does not re-run tens of thousands of correlations.
-
-Three choices worth not undoing:
-
-- **Winner-relative, not sum-relative.** Dugan's `level_i / Σ level_j` is for
-  gain-before-feedback in live PA. In post it puts three equal mics 9.5 dB down
-  during a pause, which is worse than no auto-mix. Scoring against the winner
-  makes every degenerate case a no-op.
-- **Activity is `levelActivity * coherence`.** `adaptiveGateDb` is relative to
-  each mic's own level, so room tone sits *above* every mic's gate — a level-only
-  activity test ducks silence. Nothing localisable means nothing to attribute.
-- **Never mutes** (`maxDuckDb`). Deeper pumps room tone, and it would destroy the
-  material for the per-band stage that comes later.
-
-### Levels (`levelMatch`)
-
-Ducking decides *who*; this decides *how loud*. Without it a mic set 16 dB hot is
-still 16 dB hot in the output whenever its owner talks. The correction is a
-constant per mic, deliberately **not** folded into the duck curve — a "duck
-depth" measured off a combined curve would include a level correction that is not
-a duck. Consumers add the two where a constant offset is what it is.
-
-| mode | aims at | needs |
-|---|---|---|
-| `target` (default) | `targetLufs`, absolute, default −16 | `speechLufs` |
-| `match` | median of the other mics' speaking levels | `refDb` |
-| `off` | nothing | — |
-
-Both work off a measurement of **one person's own dialogue**, which is what
-attribution bought: the frames where timing says that mic's wearer was the source.
-That gate is the whole point. A track's own integrated loudness counts bleed and
-room tone as programme, so the quietest participant — whose mic spends most of the
-take catching everyone else — reads *loud* and would be turned **down**.
-
-`speechLufs` is ITU-R BS.1770 (`engine/src/loudness.js`), K-weighted with
-coefficients re-derived per sample rate rather than tabulated, since attribution
-runs at 8 kHz and the published biquads are 48 kHz only. It is not derivable from
-`refDb`: that is a p95 of frame RMS, a peak-ish statistic with no fixed
-relationship to a mean-square loudness.
-
-Three bounds, all reported rather than silently absorbed (`matchClamp`):
-
-- **`headroom`** — upward gain is capped so the loudest frame plus
-  `crestAllowanceDb` stays under full scale. Clipping a track is worse than
-  leaving it quiet.
-- **`range`** — `maxMatchDb` (18). Further than that from where it should be is
-  more likely a bad estimate than a real trim.
-- **`unmeasured`** — attribution never caught this mic leading, so everything
-  above its gate is other people. Amplifying bleed is the worst thing a level
-  control can do, and the mic is left alone. Such a mic is also kept out of
-  `match`'s median.
-
-Measured on the decimated copy, `speechLufs` reads ≈0.4 LU low (the anti-alias
-filter takes the top of the speech band, and K-weighting lifts that band 4 dB), so
-delivery lands slightly above the number asked for. Left uncorrected on purpose:
-it is a bias of consistent sign and size, so it moves no mic relative to another,
-and a constant fitted on fixtures would stop being right the moment `decimation`
-changes. End to end, renders land within ~1.2 LU of target.
-
-### Output modes
-
-`output: 'curve' | 'render' | 'both'`, default `curve`. Auto-mix is the only
-feature here that *can* be non-destructive: its output is a broadband gain curve,
-which is what a volume automation track is. Alignment cannot be (sub-sample
-resampling is not a timeline parameter) and per-band bleed reduction cannot be
-(it is spectral).
-
-`simplifyGainCurve` reduces 62.5 fps to a keyframe list by Douglas-Peucker with
-an explicit dB bound — around 5 keys/second at the 0.25 dB default. Times are
-clipped to the clip's own interval, since a host cannot key before a clip starts.
-`applyGainCurve` is the render path: it mirrors `renderChannel`'s time-axis
-resample and deliberately omits the value scaling, because a delay is in samples
-and a gain is dimensionless. It is safe in place.
-
-### Known limitations
-
-- **`gccPhat` is not reentrant.** Its scratch cache is module-level and keyed by
-  FFT size, so the per-pair correlations must run one at a time. `Promise.all`
-  over pairs would corrupt results silently, with no crash. Real parallelism
-  needs worker threads. `pool.js` does not apply — its model is independent
-  pairs, and auto-mix's expensive stage is global.
-- **Clock offsets are fitted pair by pair, and that breaks down for K ≥ 3.** The
-  mid-range in `fitPairBaseline` assumes both members of a pair take turns being
-  the nearest mic. When the source is nearest to *neither*, the true residual is
-  0 — a third mode between them. A participant who never speaks therefore only
-  ever produces `{+delta, 0}`, the baseline lands at `delta/2`, and their mic
-  appears to lead during everyone else's turns; the cue nets to neutral and they
-  are ducked ~3 dB instead of ~12 dB. Fixing it means estimating per-mic clock
-  offsets **globally** across all pairs rather than pairwise. This is the top
-  item for the next iteration.
-- **Cost is O(K²) in mic count.** Candidate pruning bounds the per-frame pass but
-  not sync/baseline, which still run once per unordered pair. `node bench.js
-  automix 60` reports both; K=8 costs several times K=3.
-
 ## Native decode addon (UXP)
 
 `unphased.uxpaddon` is a statically linked, audio-only FFmpeg 8.1.2 exposing two
@@ -318,6 +185,21 @@ same guarantee putting `-ss` *after* `-i` gives ffmpeg on the headless path.
 `uxp/tests/decodeCore.test.js`
 asserts a bit-exact match against a known WAV, and that neighbouring lags fit
 visibly worse.
+
+Decoding reads only the wanted audio stream (the others are discarded at the
+demuxer, and the container is probed only when its header is incomplete), and
+runs on a background pool via `decodeAsync`. The DSP is single-threaded JS, so
+the pool pays by **overlap**: `runner.js` decodes the current pair's target
+alongside its reference, then — while the pair is aligned — that pair's render
+channels and the next pair's audio. Everything decoded ahead waits in
+Premiere's heap, so `audio.prefetch` caps it with a **memory budget** (512 MB by
+default, counted at 8 bytes a sample from start until used) rather than the
+thread count: short clips decode many at a time, a 5-minute region a few, and a
+region too big for the budget decodes when its turn comes, so the peak is never
+higher than decoding one at a time. Waiting audio is held as the addon's float32
+buffer and only widened to Float64 when used. `localStorage`
+`"unphased-decode" = "sync"` turns the pool off, and
+`"unphased-decode-budget-mb"` overrides the budget.
 
 ## Premiere API notes
 

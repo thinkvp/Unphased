@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { alignPair, nullDepthDb } from '../src/align.js';
-import { speechLike, fftDelay, addNoise, scale } from './fixtures.js';
+import { alignPair, nullDepthDb, windowedNullDepthDb } from '../src/align.js';
+import { speechLike, fftDelay, addNoise, scale, mulberry32 } from './fixtures.js';
 
 test('static align: clean fractional delay -> deep null', () => {
   const { signal: ref, sampleRate } = speechLike({ seconds: 20, seed: 21 });
@@ -71,4 +71,59 @@ test('polarity correction is what earns the null on an inverted pair', () => {
   assert.equal(on.report.polarityInverted, true);
   assert.ok(on.report.nullDepthDb >= 20, `corrected null ${on.report.nullDepthDb} dB`);
   assert.ok(off.report.nullDepthDb < 1, `uncorrected null ${off.report.nullDepthDb} dB`);
+});
+
+// A level ratio that wanders, as a lav against a camera mic does when people
+// move: the timing is perfect, but no single gain fits the whole clip.
+function wanderingGain(signal, sampleRate) {
+  return signal.map((v, i) => v * (0.9 + 0.7 * Math.sin((2 * Math.PI * i) / (sampleRate * 30))));
+}
+
+test('windowedNullDepthDb: a wandering level does not hide a perfect alignment', () => {
+  const { signal: ref, sampleRate } = speechLike({ seconds: 30, seed: 31 });
+  const tgt = wanderingGain(ref, sampleRate);
+  const whole = nullDepthDb(ref, tgt);
+  const windowed = windowedNullDepthDb(ref, tgt, { sampleRate });
+  assert.ok(whole < 8, `whole-clip null ${whole} dB should be dragged down by the level swing`);
+  assert.ok(windowed > 15, `windowed null ${windowed} dB should see the alignment`);
+});
+
+test('windowedNullDepthDb still fails audio that is out of time or inverted', () => {
+  const { signal: ref, sampleRate } = speechLike({ seconds: 30, seed: 32 });
+  const late = fftDelay(ref, 0.004 * sampleRate); // 4 ms off
+  assert.ok(windowedNullDepthDb(ref, late, { sampleRate }) < 3, 'a 4 ms error must not null');
+  const inverted = ref.map((v) => -v);
+  assert.ok(windowedNullDepthDb(ref, inverted, { sampleRate }) < 1, 'per-window gain must stay non-negative');
+  const { signal: other } = speechLike({ seconds: 30, seed: 33 });
+  assert.ok(windowedNullDepthDb(ref, other, { sampleRate }) < 3, 'unrelated audio must not null');
+});
+
+test('windowedNullDepthDb skips pauses rather than scoring room tone', () => {
+  const { signal: speech, sampleRate } = speechLike({ seconds: 10, seed: 34 });
+  // speech, then a long pause of quiet uncorrelated noise on each mic, then speech
+  const pause = 20 * sampleRate;
+  const ref = new Float64Array(speech.length * 2 + pause);
+  const tgt = new Float64Array(ref.length);
+  const rngA = mulberry32(5), rngB = mulberry32(6);
+  for (let i = 0; i < ref.length; i++) { ref[i] = (rngA() - 0.5) * 1e-4; tgt[i] = (rngB() - 0.5) * 1e-4; }
+  for (let i = 0; i < speech.length; i++) {
+    ref[i] += speech[i]; tgt[i] += 0.8 * speech[i];
+    ref[speech.length + pause + i] += speech[i]; tgt[speech.length + pause + i] += 0.8 * speech[i];
+  }
+  const windowed = windowedNullDepthDb(ref, tgt, { sampleRate });
+  assert.ok(windowed > 20, `pauses pulled the null down to ${windowed} dB`);
+});
+
+test('windowedNullDepthDb falls back to the whole clip when it is too short to window', () => {
+  const { signal: a, sampleRate } = speechLike({ seconds: 3, seed: 35 });
+  const b = scale(a, -3);
+  assert.equal(windowedNullDepthDb(a, b, { sampleRate }), nullDepthDb(a, b));
+});
+
+test('alignPair reports the windowed null and keeps the whole-clip one', () => {
+  const { signal: ref, sampleRate } = speechLike({ seconds: 30, seed: 36 });
+  const tgt = wanderingGain(fftDelay(ref, 0.0123 * sampleRate), sampleRate);
+  const r = alignPair({ ref, tgt, sampleRate, params: { mode: 'static', phase: 'off' } });
+  assert.ok(r.report.nullDepthDb > 15, `reported null ${r.report.nullDepthDb} dB`);
+  assert.ok(r.report.nullDepthWholeDb < r.report.nullDepthDb, 'whole-clip figure should be the lower one here');
 });

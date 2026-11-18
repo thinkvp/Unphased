@@ -14,7 +14,7 @@ const esm = (file) => import(pathToFileURL(path.join(SRC, file)).href);
 // second, hand-maintained copy, and a module missing here is a module whose
 // export parity nothing checks.
 const MODULES = [
-    "align.js", "autoMix.js", "coarse.js", "coherence.js", "decimate.js",
+    "align.js", "coarse.js", "coherence.js", "decimate.js",
     "fft.js", "gccPhat.js", "job.js", "lattice.js", "pathSolver.js",
     "phaseAlign.js", "polarity.js", "varyDelay.js", "wav.js"
 ];

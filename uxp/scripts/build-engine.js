@@ -14,8 +14,8 @@
 // import sneaking into a module we claim is pure) is a hard error rather than a
 // silent mistranslation.
 //
-// js/pairing.js and js/volume.js are NOT generated — they are hand-maintained
-// UMD panel modules that the engine test suite requires directly.
+// js/pairing.js is NOT generated — it is a hand-maintained UMD panel module
+// that the engine test suite requires directly.
 //
 // Generated files are committed so the plugin folder is loadable as-is. Run
 //   node scripts/build-engine.js --check
@@ -34,9 +34,9 @@ const OUT = path.join(ROOT, "js", "engine");
 //   progress.js — writes NDJSON to stdout (replaced by runner.js callbacks)
 //   wavFile.js  — node:fs wrappers (UXP reads/writes through its own fs)
 const MODULES = [
-    "align.js", "autoMix.js", "coarse.js", "coherence.js", "decimate.js",
-    "fft.js", "gccPhat.js", "job.js", "lattice.js", "loudness.js",
-    "pathSolver.js", "phaseAlign.js", "polarity.js", "varyDelay.js", "wav.js"
+    "align.js", "coarse.js", "coherence.js", "decimate.js", "fft.js",
+    "gccPhat.js", "job.js", "lattice.js", "pathSolver.js", "phaseAlign.js",
+    "polarity.js", "varyDelay.js", "wav.js"
 ];
 
 const BANNER = (from) =>

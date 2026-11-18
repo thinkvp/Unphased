@@ -2,14 +2,13 @@
 // Stage-by-stage benchmark for the alignment engine.
 //   node bench.js              30 s and 300 s pairs
 //   node bench.js 30           just the 30 s pair
-//   node bench.js automix 60   auto-mix stages, 3 and 8 mics
 //
 // Two jobs, both of which have to be done together: report where the time goes,
 // and report what the engine actually decided. A speedup that quietly moves
 // staticDelayMs is not a speedup, so every run prints both and later phases are
 // compared against a recorded baseline.
 
-import { speechLike, varyingDelay, addNoise, scale, speakerRoom } from './test/fixtures.js';
+import { speechLike, varyingDelay, addNoise, scale } from './test/fixtures.js';
 import { estimateStaticOffset } from './src/coarse.js';
 import { estimateBandWeights } from './src/coherence.js';
 import { detectPolarity } from './src/polarity.js';
@@ -18,9 +17,6 @@ import { solvePath, expandPath, AGILITY } from './src/pathSolver.js';
 import { measurePhase, applyPhase } from './src/phaseAlign.js';
 import { applyDelayCurve } from './src/varyDelay.js';
 import { decimate, COARSE_DECIMATION } from './src/decimate.js';
-import {
-  attributeSpeakers, autoMixGains, simplifyGainCurve, ATTRIB_DECIMATION,
-} from './src/autoMix.js';
 import {
   alignPair, DEFAULT_PARAMS, AUTO_SHIFT_MAX,
   COARSE_MAX_BLOCKS, CONFIRM_WINDOW_MS, CONFIRM_BLOCK_SAMPLES,
@@ -171,52 +167,6 @@ function run(seconds) {
   console.log(`        expected ~${DELAY_START_MS}-${DELAY_END_MS} ms, measured mean ${total.toFixed(4)} ms`);
 }
 
-/**
- * Auto-mix cost is driven by mic COUNT as much as by clip length. Candidate
- * pruning bounds the per-frame correlation pass, but it does NOT touch the sync
- * and baseline tiers, which still run once per unordered pair — so the total
- * stays O(K^2) and K=8 costs several times K=3 rather than roughly the same.
- * That is the number to watch: making the pairing cheaper for large casts means
- * attacking sync/baseline, not the frame loop.
- */
-function runAutoMix(seconds, mics) {
-  console.log(`
-=== automix: ${mics} mics, ${seconds} s @ ${SAMPLE_RATE} Hz ===`);
-  const fa = SAMPLE_RATE / ATTRIB_DECIMATION;
-  const room = speakerRoom({
-    seconds, sampleRate: SAMPLE_RATE, speakers: mics, seed: 71, noiseSnrDb: 30,
-  });
-
-  rows.length = 0;
-  const small = time('decimate 48k->8k (all mics)', () =>
-    room.mics.map((m) => decimate(m, ATTRIB_DECIMATION)));
-  const attr = time('attribute (sync+baseline+frames)', () =>
-    attributeSpeakers(small, { sampleRate: fa }));
-  const gains = time('gains + ballistics', () => autoMixGains(attr, {}));
-  const keys = time('simplify curve (all mics)', () =>
-    gains.gainDb.map((g) => simplifyGainCurve(g, attr.frameCenters, { sampleRate: fa })));
-
-  const total = rows.reduce((s, r) => s + r.ms, 0);
-  printTable(total);
-  console.log(`  ${'TOTAL'.padEnd(34)}  ${total.toFixed(1).padStart(9)} ms`);
-
-  const usable = attr.pairs.filter((p) => p.usable).length;
-  const spread = attr.pairs.map((p) => p.spreadMs.toFixed(1)).join('/');
-  console.log(
-    `
-RESULT  frames=${attr.nFrames}` +
-    `  pairs=${usable}/${attr.pairs.length} usable` +
-    `  spreadMs=${spread}` +
-    `  activeFraction=${gains.report.activeFraction.toFixed(3)}` +
-    `  keys=${keys.map((k) => k.kept).join('/')}`
-  );
-}
-
 const argv = process.argv.slice(2);
-if (argv[0] === 'automix') {
-  const secs = Number(argv[1]) > 0 ? Number(argv[1]) : 60;
-  for (const mics of [3, 8]) runAutoMix(secs, mics);
-} else {
-  const args = argv.map(Number).filter((n) => Number.isFinite(n) && n > 0);
-  for (const seconds of args.length ? args : [30, 300]) run(seconds);
-}
+const args = argv.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+for (const seconds of args.length ? args : [30, 300]) run(seconds);

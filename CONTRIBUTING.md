@@ -14,10 +14,10 @@ engine/src/*.js   ← edit here
              └─ uxp/js/engine/*.js    ← generated, committed, DO NOT hand-edit
 ```
 
-`uxp/js/pairing.js` and `uxp/js/volume.js` are the exception in the other
-direction: they are hand-maintained panel modules that the engine test suite
-requires directly, so a change to either is covered by `cd engine && npm test`
-rather than by the transpile check.
+`uxp/js/pairing.js` is the exception in the other direction: it is a
+hand-maintained panel module that the engine test suite requires directly, so a
+change to it is covered by `cd engine && npm test` rather than by the transpile
+check.
 
 The generated files are committed so the plugin folder loads as-is. After
 changing anything under `engine/src/`:

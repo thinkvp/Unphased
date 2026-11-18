@@ -77,62 +77,6 @@
     <div id="btn-align" class="btn btn-primary is-disabled">◆ Align</div>
   </div>
 
-  <!-- Auto-Mix: its own section, with its own settings and its own button.
-       Sharing a button row with Align buried it, and the loose param-fields
-       had no card to lay out inside. -->
-  <div class="card" style="margin-top:14px;">
-    <div class="card-label">Auto-Mix<span class="beta-tag" title="Work in progress — the results are worth checking before you rely on them">Beta</span></div>
-    <div class="param-grid">
-      <div class="param-field">
-        <div class="param-field-label" title="How far a mic is turned down when it is clearly not the current speaker. Partial confidence gives a proportionally smaller duck, so overlapping speech is never slammed shut.">Duck depth</div>
-        <div id="param-duck" class="seg stepper">
-          <div class="seg-opt" data-step="-3" title="Less">−</div>
-          <div class="seg-opt is-on" data-readout="duck">12 dB</div>
-          <div class="seg-opt" data-step="3" title="More">+</div>
-        </div>
-      </div>
-      <div class="param-field">
-        <div class="param-field-label" title="How long a mic stays ducked after its talker stops. Longer is smoother; shorter reacts faster but can sound busy.">Release</div>
-        <div id="param-release" class="seg stepper">
-          <div class="seg-opt" data-step="-100" title="Faster">−</div>
-          <div class="seg-opt is-on" data-readout="release">1000 ms</div>
-          <div class="seg-opt" data-step="100" title="Slower">+</div>
-        </div>
-      </div>
-    </div>
-    <div class="param-grid" style="margin-top:10px;">
-      <div class="param-field">
-        <div class="param-field-label" title="Bring every mic to a common speaking level, so the mix does not jump when the floor passes between people whose recorders were set differently">Levels</div>
-        <div id="param-levelmatch" class="seg">
-          <div class="seg-opt is-on" data-value="target" title="Bring each person's dialogue to the target loudness on the right. Absolute, so the mix lands where you asked whatever came in. Never pushes a mic up into clipping.">Target</div>
-          <div class="seg-opt" data-value="match" title="Bring each mic to the median of the others' speaking levels. Makes the tracks agree with each other without deciding how loud they end up.">Match</div>
-          <div class="seg-opt" data-value="off" title="Leave each mic at the level it was recorded">Off</div>
-        </div>
-      </div>
-      <div class="param-field">
-        <div class="param-field-label" title="Loudness each person's own dialogue is brought to, measured to ITU-R BS.1770 over the frames where that mic's wearer is the one speaking — so bleed and pauses do not count. −16 is the streaming and podcast norm; −23 is EBU R128 broadcast. Only used when Levels is set to Target.">Target</div>
-        <div id="param-targetlufs" class="seg stepper">
-          <div class="seg-opt" data-step="-1" title="Quieter">−</div>
-          <div class="seg-opt is-on" data-readout="targetLufs">-16 LUFS</div>
-          <div class="seg-opt" data-step="1" title="Louder">+</div>
-        </div>
-      </div>
-    </div>
-    <div class="param-grid" style="margin-top:10px;">
-      <div class="param-field">
-        <div class="param-field-label" title="What Auto-Mix produces">Output</div>
-        <div id="param-automix-output" class="seg">
-          <div class="seg-opt is-on" data-value="curve" title="Write volume keyframes onto the selected clips. Non-destructive and editable afterwards.">Keyframes</div>
-          <div class="seg-opt" data-value="render" title="Render new ducked WAVs and place them on new tracks, leaving the originals untouched.">Render</div>
-        </div>
-      </div>
-    </div>
-    <div id="automix-note" class="hint" style="margin-top:8px;">Select clips on two or more tracks — every one is an equal participant, and REF is not used.</div>
-    <div class="btn-row" style="margin-top:10px;">
-      <div id="btn-automix" class="btn btn-primary is-disabled" title="Work out who is speaking moment to moment and duck the mics that are not">◆ Auto-Mix</div>
-    </div>
-  </div>
-
   <!-- Tips card: shown once per install after a successful Align -->
   <div id="tips-card" class="tips-card" style="display:none;">
     <span class="tips-card-text">🎉 <span id="tips-card-stats">Aligned!</span> Unphased is free — if it saved you time, consider <a id="tips-card-link" href="https://ko-fi.com/thinkvp">tipping on Ko-fi</a>.</span>
@@ -165,7 +109,7 @@
   <div>
     <div class="section-head">
       <div class="card-label">Log</div>
-      <div id="btn-copy-log" class="btn-mini" title="Copy the whole log to the clipboard">⧉ Copy</div>
+      <div id="btn-export-log" class="btn-mini" title="Write the whole log to a .txt file — send that with a bug report">⬇ Export .txt</div>
       <div id="btn-clear-log" class="btn-mini" title="Clear the log">✕ Clear</div>
     </div>
     <div id="log"></div>
@@ -270,7 +214,7 @@
 
 <!-- Footer -->
 <div class="footer">
-  <span id="version">Unphased UXP v1.1.0</span>
+  <span id="version">Unphased UXP v1.2.2</span>
   <span id="tool-status"></span>
   <span>Premiere Pro 26+</span>
   <a id="footer-tips" href="https://ko-fi.com/thinkvp" title="Support development">Tips</a>

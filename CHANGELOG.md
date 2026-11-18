@@ -8,6 +8,63 @@ The version lives in `uxp/manifest.json` and is propagated to `package.json`,
 the panel footer and `ping()` by `uxp/scripts/set-version.js`; CI fails the
 release if the tag disagrees with it.
 
+## [1.2.2]
+
+### Changed
+
+- **Much faster decoding of camera files.** The decoder now reads only the
+  audio stream it needs instead of the whole interleaved file, and skips
+  re-probing a container whose header already describes the audio. A 5-minute
+  region from a NAS share: Sony A7S III MP4 35 s → 7 s, Sony FX6 MXF 20 s → 5 s;
+  short slices drop from 1–4 s to a fraction of a second.
+  The decoded samples are byte-identical to before, checked on MP4 (LPCM and
+  AAC), MXF, WAV, MKV, MPEG-TS and MP3 with stream and channel selection,
+  offsets and resampling.
+- **Decoding runs in the background.** The panel stays responsive while audio
+  decodes, and Align decodes what comes next while the current clip
+  is being analysed. How far ahead is capped by memory (512 MB by default), not
+  just by the CPU count, because the audio waits in Premiere's memory until it
+  is used; a region too large for the cap decodes when its turn comes, exactly
+  as before. The log reports how decoding was set up and how long it took.
+  `localStorage` `"unphased-decode"` = `"sync"` turns this off.
+- The analysis-rate copy of each target is released as soon as alignment is
+  done, before the render allocates its own buffers, lowering peak memory on
+  every run.
+- **The log's Copy button is now Export .txt**, the same as Syncitol's: it
+  opens a save dialog and writes the whole log to a text file. Copy never
+  reached the clipboard (the manifest has no clipboard permission) and quietly
+  wrote a file to a temp folder instead.
+- After each Align the log says where the time went: waiting for audio,
+  aligning, rendering, writing the WAVs and placing them in Premiere.
+- **Null is measured over 2-second stretches** and the typical one reported,
+  instead of with one level for the whole clip. On a long take the level
+  between a lav and a camera mic keeps moving, which marked good alignments
+  down: a 43-minute interview read 1–2 dB while timed exactly to the lav, and
+  reads ~5 dB now. Out-of-time or polarity-inverted audio still scores near
+  0 dB. The whole-clip figure is still in the result as `nullDepthWholeDb`.
+- The "source file(s) carry multiple mics" warning now names each file and
+  says which input (`src N`) or channel each of its tracks is using, so it is
+  clear which tracks it is about.
+
+### Removed
+
+- **Auto-Mix (beta)**, from the panel and the engine: the panel section and
+  its runner, `engine/src/autoMix.js`, `autoMixRun.js`, `loudness.js`, the
+  `cli.js automix` command and `bench.js automix`, along with their tests.
+  It is in the git history (1.1.0) if it comes back.
+
+### Fixed
+
+- **macOS:** when the decoder fails to load, the panel now says how to unblock
+  it (System Settings → Privacy & Security → Allow Anyway, then restart
+  Premiere Pro). The loader's own message is now actually written to the log,
+  as the boot banner already claimed.
+- Pressing Align with no reference track set now says to pick one, instead of
+  claiming the sequence changed. The panel's first log line now names the
+  version, so a log that is sent in says which build produced it.
+- The result line no longer says "search widened to ±2 s" on every run — the
+  automatic search always covers ±2 s, so the note carried no information.
+
 ## [1.1.0]
 
 ### Added

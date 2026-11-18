@@ -13,7 +13,28 @@ probe(path)
 
 decode(path, audioStream, channel, startSec, durationSec, sampleRate)
   -> { sampleRate, samples: ArrayBuffer }      // float32 mono, LE
+
+decodeAsync(path, audioStream, channel, startSec, durationSec, sampleRate)
+  -> Promise<{ sampleRate, samples: ArrayBuffer }>   // same, on a background pool
+
+decodeThreads() -> pool size      cpuCount() -> logical CPU threads
 ```
+
+`decode` runs on UXP's scripting thread. `decodeAsync` runs the same decode on
+a pool of worker threads sized from the CPU — `clamp((cpus - 2) / 2, 1, 6)`, so
+4 threads → 1, 8 → 3, 12 → 5, 16+ → 6 — and posts each result back to the
+scripting thread with `uxp_addon_schedule_on_javascript_queue`. `Terminate`
+stops results being posted before it joins the pool, so nothing reaches a torn
+down panel, and `Init` re-arms it for a panel reload. How many decodes JS keeps
+in flight is limited by a **memory budget** in `js/audio.js`, not just by the
+pool size: Unphased decodes whole clip regions, and those live in Premiere's
+heap until they are used.
+
+`decodeMono` reads only the stream it decodes: every other stream is set to
+`AVDISCARD_ALL`, so MP4/MOV skip the video samples outright and MXF steps over
+them, and `avformat_find_stream_info` runs only when the header does not fully
+describe that stream. On camera files over a network share that was most of
+the time a decode took. `probeFile` still always probes; it runs once per file.
 
 `channel` is `-1` to downmix the stream to mono or `0..n-1` to select one
 channel (`pan=mono|c0=cN`); `sampleRate` is `0` to keep the stream's own rate.

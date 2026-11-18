@@ -83,7 +83,7 @@ test("every runtime file build-ccx stages exists", () => {
     for (const rel of singles) {
         assert.ok(fs.existsSync(path.join(ROOT, rel)), `build-ccx stages missing file ${rel}`);
     }
-    for (const f of ["main.js", "audio.js", "runner.js", "premiere.js", "pairing.js", "volume.js", "automixRunner.js"]) {
+    for (const f of ["main.js", "audio.js", "runner.js", "premiere.js", "pairing.js"]) {
         assert.ok(fs.existsSync(path.join(ROOT, "js", f)), `missing js/${f}`);
     }
 });
@@ -189,8 +189,8 @@ test("every control main.js binds actually exists in index.html", () => {
     // fix is not shipping a mismatch in the first place.
     const js = fs.readFileSync(path.join(ROOT, "js", "main.js"), "utf8");
     const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-    const bound = [...js.matchAll(/bind(?:Segment|Stepper)\("([^"]+)"/g)].map((m) => m[1]);
-    assert.ok(bound.length >= 4, `only found ${bound.length} bound controls — did the binders get renamed?`);
+    const bound = [...js.matchAll(/bindSegment\("([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(bound.length >= 2, `only found ${bound.length} bound controls — did the binders get renamed?`);
     for (const id of bound) {
         assert.ok(html.includes(`id="${id}"`), `main.js binds "${id}" but index.html has no such element`);
     }
@@ -228,14 +228,3 @@ test("the panel does not pin the search window", () => {
         "the panel should leave maxShiftMs on auto");
 });
 
-test("stepper controls carry the parts their binder needs", () => {
-    const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-    for (const m of html.matchAll(/<div id="([^"]+)" class="seg stepper">([\s\S]*?)<\/div>\s*<\/div>/g)) {
-        const [, id, body] = m;
-        assert.ok(/data-readout=/.test(body), `stepper "${id}" has no [data-readout] cell to write into`);
-        const steps = [...body.matchAll(/data-step="(-?\d+)"/g)].map((s) => Number(s[1]));
-        assert.equal(steps.length, 2, `stepper "${id}" should have exactly two step buttons`);
-        assert.ok(steps.some((v) => v < 0) && steps.some((v) => v > 0),
-            `stepper "${id}" needs one decrement and one increment`);
-    }
-});

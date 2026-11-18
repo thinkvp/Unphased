@@ -10,14 +10,12 @@ on:
     paths:
       - 'engine/**'
       - 'uxp/js/pairing.js'
-      - 'uxp/js/volume.js'
       - 'testmedia/**'
       - '.github/workflows/engine-ci.yml'
   pull_request:
     paths:
       - 'engine/**'
       - 'uxp/js/pairing.js'
-      - 'uxp/js/volume.js'
       - 'testmedia/**'
       - '.github/workflows/engine-ci.yml'
 
@@ -46,9 +44,8 @@ jobs:
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      # The suite also covers uxp/js/pairing.js and uxp/js/volume.js, which are
-      # panel modules the engine tests require directly — hence the extra paths
-      # in the triggers above.
+      # The suite also covers uxp/js/pairing.js, a panel module the engine tests
+      # require directly — hence the extra path in the triggers above.
       #
       # UNPHASED_FFMPEG must be set: the suites default to the Windows install
       # path (C:\ffmpeg\bin\ffmpeg.exe) and silently skip when it is absent —

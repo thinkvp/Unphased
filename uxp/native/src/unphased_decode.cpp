@@ -125,12 +125,39 @@ DecodeResult decodeMono(const std::string& path, int audioStream, int channel,
     if (avformat_open_input(&d.fmt, path.c_str(), nullptr, nullptr) < 0) {
         out.error = "open failed"; return out;
     }
-    if (avformat_find_stream_info(d.fmt, nullptr) < 0) {
-        out.error = "stream info failed"; return out;
+
+    // Only the one audio stream is wanted. Discarding every other stream lets
+    // the demuxer skip their data instead of reading it and throwing it away:
+    // for a camera file that is the video, nearly all of its bytes, and over a
+    // network share it was most of the time a decode took. (MP4/MOV skip a
+    // discarded stream's samples outright; MXF steps over them.)
+    const int wantOrdinal = audioStream < 0 ? 0 : audioStream;
+    int audioCount = 0;
+    int streamIndex = resolveAudioStream(d.fmt, wantOrdinal, &audioCount);
+    auto discardOthers = [&](int keep) {
+        for (unsigned i = 0; i < d.fmt->nb_streams; i++) {
+            d.fmt->streams[i]->discard = ((int)i == keep) ? AVDISCARD_DEFAULT : AVDISCARD_ALL;
+        }
+    };
+    if (streamIndex >= 0) discardOthers(streamIndex);
+
+    // Probing reads ahead to fill in stream details. When the header already
+    // describes the stream completely (MP4/MOV, MXF and WAV do) it is a second
+    // read of the file for nothing, so only probe when it doesn't — or when no
+    // audio stream showed up yet (formats whose streams appear only once
+    // packets are read). probeFile() still always probes: it runs once per
+    // file and reports fields only probing fills in.
+    const AVCodecParameters* hp = streamIndex >= 0 ? d.fmt->streams[streamIndex]->codecpar : nullptr;
+    const bool headerComplete = hp && hp->codec_id != AV_CODEC_ID_NONE &&
+                                hp->sample_rate > 0 && hp->ch_layout.nb_channels > 0;
+    if (!headerComplete) {
+        if (avformat_find_stream_info(d.fmt, nullptr) < 0) {
+            out.error = "stream info failed"; return out;
+        }
+        streamIndex = resolveAudioStream(d.fmt, wantOrdinal, &audioCount);
+        if (streamIndex >= 0) discardOthers(streamIndex);
     }
 
-    int audioCount = 0;
-    const int streamIndex = resolveAudioStream(d.fmt, audioStream < 0 ? 0 : audioStream, &audioCount);
     if (streamIndex < 0) {
         out.error = audioCount ? ("audio stream " + std::to_string(audioStream) + " does not exist (file has " +
                                   std::to_string(audioCount) + ")")

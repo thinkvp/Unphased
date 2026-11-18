@@ -70,6 +70,8 @@ plugin will not work until you clear it:
    a message about **Unphased** being blocked — click **Allow Anyway**.
 3. **Restart Premiere Pro.** The panel should now load.
 
+If the decoder is still blocked, the panel says so and repeats these steps.
+
 The only way to remove that warning is a **$99/year Apple Developer account** to
 sign and notarise the binary. I don't use a Mac and this is a free plugin, so
 that isn't something I'm planning to pay for. The build is reproducible and the
@@ -178,7 +180,9 @@ save the project and align again to keep them.
 ### Reading the results
 
 `Null` is the headline number: how deeply the aligned clip cancels against the
-reference. Interpret it in context — it is not "higher is always better proof of
+reference. It is measured over 2-second stretches, each at its own level, and
+the typical stretch is reported — so a long take where people move around the
+room is not marked down for level changes that have nothing to do with timing. Interpret it in context — it is not "higher is always better proof of
 success":
 
 - **> 40 dB** — suspiciously perfect. Almost always means both sides decoded the
@@ -191,35 +195,6 @@ success":
 
 A `Delay` of exactly ±0.0 ms with `Drift —` and a huge null is the signature of a
 clip aligned against itself.
-
-## Auto-Mix (beta)
-
-A separate job from Align, with its own button. Give it N microphones as **equal
-participants** — no reference, no targets, the REF mark is ignored — and it
-decides per frame whose mic the current speaker is on and ducks the rest. It is
-built for the case where every mic is someone's close mic and everyone else's
-bleed: three lavs on three people round a table.
-
-Select clips on two or more tracks and press **Auto-Mix**. By default it writes
-**volume keyframes onto the clips themselves** — nothing is rendered, imported
-or placed, and the duck is applied relative to whatever level you already set,
-so it leans on your mix rather than replacing it. Switch **Output** to Render if
-you want ducked WAVs on new tracks instead.
-
-It decides on level *and* time of arrival: direct sound leads, bleed arrives
-~3 ms per metre late. Timing is what survives mismatched recorder trims, and it
-is the only cue carrying information while two people talk at once.
-
-**Levels** brings each person's own dialogue to a target loudness (default
-−16 LUFS, ITU-R BS.1770) measured *only* over the frames where that mic's wearer
-is the one speaking — measuring the whole track would count bleed as programme,
-so the quietest participant would read loud and get turned down. `Match` instead
-moves every mic toward the median of the others; `Off` leaves levels alone.
-
-**It is marked Beta in the panel for a reason.** The attribution and gain maths
-are covered by the engine test suite, but it has not been proven across a range
-of real productions. Check what it did before relying on it — the keyframes are
-ordinary volume automation, so they are easy to inspect and undo.
 
 ## Verifying with the test project
 
@@ -237,8 +212,8 @@ ordinary volume automation, so they are easy to inspect and undo.
 ## Tests
 
 ```bash
-cd engine && npm test                # 137 tests — the DSP
-cd uxp && npm run lint && npm test   # 38 tests — the plugin
+cd engine && npm test                # 83 tests — the DSP
+cd uxp && npm run lint && npm test   # 42 tests — the plugin
 ```
 
 Both suites are pure Node with no dependencies to install. CI runs them on every
@@ -247,8 +222,8 @@ push and pull request — see [`.github/workflows/`](.github/workflows/).
 The engine suite covers WAV I/O, FFT, GCC-PHAT, static + dynamic alignment
 against synthetic and real-resampler drift, polarity, static and time-varying
 phase correction, coherence band weighting, quiet-recording robustness,
-stereo/96 kHz preservation, the job protocol CLI (with ffmpeg), auto-mix
-attribution and loudness, and the pairing and channel-mapping logic. Tests
+stereo/96 kHz preservation, the job protocol CLI (with ffmpeg), and the
+pairing and channel-mapping logic. Tests
 needing ffmpeg skip themselves when it is absent.
 
 The plugin suite covers the generated CommonJS engine (exports and numbers
@@ -268,7 +243,6 @@ Offline coverage is good; the parts that need a running Premiere are the gap.
 | Runner (`uxp/js/runner.js`) | End-to-end offline: mono, stereo preservation, failure handling |
 | Panel UI | DOM wiring, control bindings and the packaging list checked statically |
 | Host ops (`uxp/js/premiere.js`) | Written against the documented UXP API — **not yet exercised against a live Premiere 26 session** |
-| Auto-Mix | **Beta** — attribution and gain maths covered by the engine suite; not yet proven across a range of real productions |
 | macOS | Addon builds universal and passes the decode-core tests in CI; **the panel has never been run in Premiere on a Mac** |
 
 ## Contributing

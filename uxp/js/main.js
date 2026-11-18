@@ -25,25 +25,7 @@
 const premiere = require("./js/premiere");
 const pairing = require("./js/pairing");
 const runner = require("./js/runner");
-const automix = require("./js/automixRunner");
 const audio = require("./js/audio");
-
-// Auto-Mix controls, as ranges rather than presets.
-//
-// The ceiling is deliberately far above the 12 dB the DSP defaults to: three
-// named strengths could never be the right three, and how hard to duck is a
-// judgement about the material, not something a plugin should decide. Past
-// ~20 dB the room tone under a ducked mic audibly pumps in and out — that is a
-// real cost, not a reason to withhold the control, so the range goes to 40 and
-// the panel says so when you get there.
-const AUTOMIX_RANGE = {
-    duck: { min: 3, max: 40, step: 3, unit: " dB" },
-    release: { min: 100, max: 1500, step: 100, unit: " ms" },
-    // -8 is the engine's upper bound (job.js) and nothing above -10 is a speech
-    // target; -30 is below any delivery spec but leaves room for someone
-    // matching an existing quiet edit.
-    targetLufs: { min: -30, max: -10, step: 1, unit: " LUFS" }
-};
 
 const RENDER_DIR_KEY = "unphased.renderDir";
 const BIN_NAME = "Unphased Audio";
@@ -63,8 +45,9 @@ const state = {
     showSources: false, // source pickers stay closed until asked for
     projectPath: null,
     renderDir: null,
-    params: { mode: "dynamic", phase: "spectral", automixOutput: "curve", levelMatch: "target", targetLufs: -16, duck: 12, release: 1000 },
+    params: { mode: "dynamic", phase: "spectral" },
     addonOk: null,
+    addonError: null, // the loader's own message when the decoder failed to load
     lastLiveSeqName: undefined, // undefined = not polled yet; null = polled, none active
     polling: false,
     liveSelection: null,        // trackIndex -> selected clip count, kept fresh by pollSelection()
@@ -182,48 +165,67 @@ async function checkAddon() {
     try {
         await audio.ensureAddon();
         state.addonOk = true;
+        state.addonError = null;
         renderToolStatus();
         return true;
     } catch (e) {
         state.addonOk = false;
-        renderToolStatus(String((e && e.message) || e));
+        state.addonError = String((e && e.message) || e);
+        renderToolStatus(state.addonError);
         return false;
     }
+}
+
+// How decoding will run, at the start of a run: the pool size depends on the
+// machine and the budget on a localStorage override, so both are worth seeing.
+function logDecodeSetup() {
+    audio.resetDecodeStats();
+    if (!audio.backgroundDecoding()) {
+        log("Audio decoding: one at a time on the panel thread");
+        return;
+    }
+    const n = audio.decodeConcurrency();
+    const cpus = audio.cpuCount();
+    const mb = Math.round(audio.prefetchState().budget / (1024 * 1024));
+    log(`Audio decoding: ${n} at a time in the background` +
+        (cpus ? ` (sized to this machine's ${cpus} CPU threads)` : "") +
+        `, up to ${mb} MB decoded ahead`);
+}
+
+// Wall-clock time with decoding running — overlapping decodes count once.
+function logDecodeTime() {
+    const s = audio.getDecodeStats();
+    if (!s.decodes) return;
+    log(`Decoded ${s.decodes} region(s) in ${(s.decodeMs / 1000).toFixed(1)}s` +
+        (s.prefetched ? `, ${s.prefetched} of them ahead of time` : ""));
+}
+
+/**
+ * One line saying where a run's time went, so a slow run can be diagnosed from
+ * an exported log. "Waiting for audio" is time the run stood still for the
+ * decoder — reading over a network share shows up here — and decodes that
+ * finished in the background before they were needed do not count.
+ */
+function logRunTime(results, jobMs, placeMs) {
+    const sum = (k) => results.reduce((n, r) => n + ((r.timing && r.timing[k]) || 0), 0);
+    const waitMs = audio.getDecodeStats().waitMs || 0;
+    const alignMs = sum("alignMs");
+    const writeMs = sum("writeMs");
+    const otherMs = Math.max(0, jobMs - waitMs - alignMs - writeMs);
+    const s = (ms) => (ms / 1000).toFixed(1) + "s";
+    log(`Time: ${s(jobMs + placeMs)} — waiting for audio ${s(waitMs)}, aligning ${s(alignMs)}, ` +
+        `rendering ${s(otherMs)}, writing WAVs ${s(writeMs)}, placing in Premiere ${s(placeMs)}`);
+}
+
+// Logged before a run is refused, so the reason (on a Mac, how to unblock the
+// addon) is right where the user is looking rather than only in a tooltip.
+function logAddonUnavailable(prefix) {
+    log(prefix + (state.addonError ? " " + state.addonError : ""), "error");
 }
 
 // ─── Segmented controls ───────────────────────────────────────────────────────
 // `getAttribute` and `querySelectorAll` rather than `dataset`/`children`: the
 // former pair is what UXP's DOM subset reliably implements.
-/**
- * A -/value/+ stepper built from the segmented control's parts.
- *
- * UXP's DOM subset does not give us a usable range input, and a cycling chip
- * is wrong for a continuous quantity — so the control is three divs, which is
- * the one thing this panel already proves works.
- */
-function bindStepper(id, key, range, onChange) {
-    const el = $(id);
-    // A control that is missing from the markup must not kill boot. It used to:
-    // one deleted element threw here, boot never finished, and the panel came up
-    // unable to find the active sequence — a symptom with no visible connection
-    // to the cause.
-    if (!el) { log(`Control "${id}" is missing from the panel markup.`, "warn"); return; }
-    const readout = el.querySelector("[data-readout]");
-    if (!readout) { log(`Control "${id}" has no readout.`, "warn"); return; }
-    const render = () => { readout.textContent = state.params[key] + range.unit; };
-    Array.prototype.slice.call(el.querySelectorAll("[data-step]")).forEach((btn) => {
-        const delta = parseInt(btn.getAttribute("data-step"), 10);
-        btn.addEventListener("click", () => {
-            const next = Math.min(range.max, Math.max(range.min, state.params[key] + delta));
-            if (next === state.params[key]) return;
-            state.params[key] = next;
-            render();
-            if (onChange) onChange(next);
-        });
-    });
-    render();
-}
-
 function bindSegment(id, key, onChange) {
     const host = $(id);
     if (!host) { log(`Control "${id}" is missing from the panel markup.`, "warn"); return; }
@@ -284,6 +286,46 @@ function channelOptionsFor(track) {
 }
 
 // A 2-channel file is either a stereo mic or two mics interleaved; either way
+/**
+ * Files whose source assignment is a guess, as log lines: several streams (a
+ * multi-input camera such as the FX6), or one multi-channel stream split
+ * across several tracks. A stereo file on a single track is just a stereo
+ * file — its channels are mixed — and is not mentioned.
+ */
+function sourceGuesses(seqInfo) {
+    const tracksByPath = {};
+    seqInfo.audioTracks.forEach((track, i) => {
+        const clip = track.clips.find((c) => c.mediaPath);
+        if (!clip) return;
+        (tracksByPath[clip.mediaPath] = tracksByPath[clip.mediaPath] || []).push(i);
+    });
+    const lines = [];
+    for (const p of Object.keys(tracksByPath)) {
+        const st = (state.probe[p] && state.probe[p].streams) || [];
+        const tracks = tracksByPath[p];
+        const name = (/[^\\/]+$/.exec(p) || [p])[0];
+        const label = (i) => (seqInfo.audioTracks[i].name || `A${i + 1}`);
+        if (st.length > 1) {
+            // "src N" is what the Sources picker calls each input.
+            const uses = tracks.map((i) => {
+                const m = state.sourceMap[i] || {};
+                return `${label(i)} uses src ${(m.audioStream || 0) + 1}`;
+            });
+            lines.push(`${name} has ${st.length} separate audio inputs; ${uses.join(", ")}`);
+        } else if (st.length === 1 && st[0].channels > 1 && tracks.length > 1) {
+            const uses = tracks.map((i) => {
+                const m = state.sourceMap[i] || {};
+                const ch = m.channel === null || m.channel === undefined
+                    ? (st[0].channels === 2 ? "both channels mixed" : "all channels mixed")
+                    : channelName(m.channel, st[0].channels);
+                return `${label(i)} uses ${ch}`;
+            });
+            lines.push(`${name} has ${st[0].channels} channels shared by ${tracks.length} tracks; ${uses.join(", ")}`);
+        }
+    }
+    return lines;
+}
+
 // channel 0 is the left one, so name it that. Beyond stereo the positional
 // names stop being reliable, so fall back to numbers.
 function channelName(index, total) {
@@ -301,13 +343,10 @@ function channelName(index, total) {
 function selectionTally() {
     const tracks = state.seqInfo ? state.seqInfo.audioTracks : [];
     const live = state.liveSelection;
-    const t = { onTargets: 0, onRef: 0, targetTrackCount: 0, selectedTrackCount: 0 };
+    const t = { onTargets: 0, onRef: 0, targetTrackCount: 0 };
     for (const track of tracks) {
         const n = live ? (live[track.index] || 0) : track.clips.filter((c) => c.selected).length;
         if (!n) continue;
-        // Auto-mix has no reference: every track with a selection is a
-        // participant, including whichever one is marked REF.
-        t.selectedTrackCount++;
         if (track.index === state.refTrack) t.onRef += n;
         else { t.onTargets += n; t.targetTrackCount++; }
     }
@@ -385,6 +424,7 @@ function renderTracks() {
         // live badge below says so.
         row.appendChild(makePill("REF", state.refTrack === track.index, track.clipCount === 0, () => {
             state.refTrack = track.index;
+            state.refLost = false;
             renderTracks();
             updateAlignButton();
         }));
@@ -446,9 +486,6 @@ function updateAlignButton() {
     const t = selectionTally();
     enable($("btn-align"),
         !state.running && state.refTrack !== null && t.onTargets > 0 && !!state.seqInfo);
-    // Auto-mix needs two participants and does not care about REF.
-    enable($("btn-automix"),
-        !state.running && t.selectedTrackCount >= 2 && !!state.seqInfo);
     updateAlignNote();
 }
 
@@ -540,7 +577,10 @@ async function readSequence({ quiet = false } = {}) {
         return false;
     }
     state.seqInfo = res;
-    if (state.refTrack !== null && !res.audioTracks[state.refTrack]) state.refTrack = null;
+    if (state.refTrack !== null && !res.audioTracks[state.refTrack]) {
+        state.refTrack = null;
+        state.refLost = true; // so Align can say why REF is empty, not just that it is
+    }
     // Seed the live selection tally from this scan's own per-clip reads, so
     // the align note is accurate immediately rather than waiting for the
     // next poll tick.
@@ -574,24 +614,15 @@ async function readSequence({ quiet = false } = {}) {
     for (const idx of Object.keys(state.sourceOverrides)) {
         if (res.audioTracks[idx]) state.sourceMap[idx] = state.sourceOverrides[idx];
     }
-    // Only warn where the assignment is genuinely a guess: several streams, or
-    // one multi-channel stream split across several tracks. A stereo file on a
-    // single track is just a stereo file.
-    const shared = pairing.tracksPerPath(res);
-    let multi = 0;
-    for (const p of Object.keys(state.probe)) {
-        const st = state.probe[p].streams || [];
-        if (st.length > 1 || (st.length === 1 && st[0].channels > 1 && shared[p] > 1)) multi++;
-    }
+    const guesses = sourceGuesses(res);
 
     renderTracks();
     updateAlignButton();
     setBusy(null);
     log(`Refreshed "${res.sequence.name}" — ${res.audioTracks.length} tracks, ${clipTotal} clips`, "success");
-    if (multi) {
-        log(`${multi} source file(s) carry multiple mics — press Sources and check which ` +
-            "channel each track is set to", "warn");
-    }
+    // One line per file, naming it and what each track was given, so it is
+    // clear which tracks the warning is about and which are fine.
+    for (const g of guesses) log(g + " — press Sources if that is the wrong mic", "warn");
     const sel = res.selection;
     if (sel) {
         log(`Selection: ${sel.matchedOnAudioTracks} audio clip(s) selected ` +
@@ -693,363 +724,47 @@ function maybeShowTipsCard(statsText) {
 }
 
 // ─── Align ────────────────────────────────────────────────────────────────────
-// ─── Auto-Mix ─────────────────────────────────────────────────────────────────
-
-/**
- * Work out who is speaking moment to moment across the selected tracks and duck
- * the mics that are not, as volume keyframes on the clips themselves.
- *
- * Deliberately NOT the align flow. There is no reference here — every selected
- * track is an equal participant, including whichever one is marked REF — and
- * nothing is rendered, imported or placed, because a gain curve is just
- * automation on clips that are already on the timeline.
- */
-function automixParams() {
-    // Hold scales with release: a duck that lets go quickly should not sit open
-    // through the gaps it was meant to bridge.
-    return {
-        maxDuckDb: state.params.duck,
-        levelMatch: state.params.levelMatch,
-        targetLufs: state.params.targetLufs,
-        releaseMs: state.params.release,
-        holdMs: Math.round(state.params.release * 0.6)
-    };
-}
-
-async function runAutoMix() {
-    if (state.running) return;
-    if (!(await checkAddon())) {
-        log("The bundled audio decoder is not available — this build cannot decode media.", "error");
-        return;
-    }
-    if (!(await refresh())) return;
-
-    // One participant per selected track. A track with several selected clips
-    // uses the first: auto-mix compares mics over ONE common stretch of time,
-    // so stitching several clips per mic would need a segmented job the engine
-    // does not take yet.
-    const participants = [];
-    let multiClip = 0;
-    for (const track of state.seqInfo.audioTracks) {
-        const selected = track.clips.filter((c) => c.selected);
-        if (!selected.length) continue;
-        if (selected.length > 1) multiClip++;
-        const clip = selected[0];
-        if (!clip.mediaPath) {
-            log(`${track.name}: offline media — skipped`, "warn");
-            continue;
-        }
-        if (Math.abs((clip.speedFactor || 1) - 1) > 1e-6) {
-            log(`${track.name}: speed is not 100% — skipped`, "warn");
-            continue;
-        }
-        participants.push({ track, clip });
-    }
-    if (multiClip) {
-        log(`${multiClip} track(s) had more than one clip selected — using the first on each.`, "warn");
-    }
-    if (participants.length < 2) {
-        log("Auto-Mix needs a selected clip on at least two tracks.", "error");
-        return;
-    }
-
-    // The analysed stretch is where every participant's clip overlaps.
-    let from = -Infinity;
-    let to = Infinity;
-    for (const p of participants) {
-        from = Math.max(from, p.clip.startSeconds);
-        to = Math.min(to, p.clip.endSeconds);
-    }
-    const durationSec = to - from;
-    if (!(durationSec > 2)) {
-        log(`The selected clips only overlap for ${Math.max(0, durationSec).toFixed(2)}s — need at least 2s.`, "error");
-        return;
-    }
-
-    const mics = participants.map((p) => {
-        const src = state.sourceMap[p.track.index] || { audioStream: 0, channel: null };
-        // Timeline seconds -> source seconds, the same mapping pairing.js uses.
-        const sourceStartSec = p.clip.inPointSeconds + (from - p.clip.startSeconds);
-        return {
-            id: p.track.name,
-            trackIndex: p.track.index,
-            clipIndex: p.clip.clipIndex,
-            sourceStartSec: sourceStartSec,
-            source: {
-                mediaPath: p.clip.mediaPath,
-                startSec: sourceStartSec,
-                durationSec: durationSec,
-                audioStream: src.audioStream,
-                channel: src.channel
-            }
-        };
-    });
-
-    // Two participants resolving to the same file, stream AND channel are the
-    // same signal read twice. Nothing can lead anything, every pair has zero
-    // geometry, and the result is a curve that generates perfectly and ducks
-    // nothing — which looks like a broken auto-mix rather than a bad selection.
-    // pairing.js refuses self-alignment for exactly this reason.
-    const seen = new Map();
-    const clashes = [];
-    for (const m of mics) {
-        const key = [m.source.mediaPath, m.source.audioStream || 0,
-            m.source.channel === null || m.source.channel === undefined ? "mix" : m.source.channel].join("|");
-        if (seen.has(key)) clashes.push(`${seen.get(key)} and ${m.id}`);
-        else seen.set(key, m.id);
-    }
-    if (clashes.length) {
-        log(`${clashes.join(", ")} are reading the same channel of the same file — ` +
-            "they are the same signal, so there is nothing to tell apart. Press Sources and " +
-            "set each track to its own channel.", "error");
-        return;
-    }
-
-    state.running = true;
-    state.cancelRequested = false;
-    updateAlignButton();
-    log(`Auto-Mix (${state.params.duck} dB, release ${state.params.release} ms): ${mics.length} mics over ${durationSec.toFixed(1)}s — ${mics.map((m) => m.id).join(", ")}`);
-    for (const m of mics) {
-        const ch = m.source.channel === null || m.source.channel === undefined
-            ? "downmix" : `channel ${m.source.channel + 1}`;
-        log(`  ${m.id}: ${m.source.mediaPath.split(/[\\/]/).pop()} stream ${m.source.audioStream || 0}, ${ch}`);
-    }
-
-    // Handles give the +/-2s sync search real audio to read instead of zero
-    // padding, but never more than the material either side can supply.
-    const headroom = Math.min(
-        2.25,
-        ...participants.map((p) => Math.max(0, p.clip.inPointSeconds + (from - p.clip.startSeconds))));
-
-    const outputMode = state.params.automixOutput === "render" ? "render" : "curve";
-    let renderDir = null;
-    if (outputMode === "render") {
-        try {
-            const r = await resolveRenderDir(state.projectPath);
-            renderDir = r.dir;
-            log("Rendering to " + renderDir);
-        } catch (e) {
-            finish(String((e && e.message) || e), "error");
-            return;
-        }
-        const runStamp = stamp();
-        for (const m of mics) {
-            m.outputPath = `${renderDir}/${pairing.sanitize(m.id)}-automix-${runStamp}.wav`;
-        }
-    }
-
-    let result;
-    try {
-        result = await automix.runAutoMix(
-            { mics, params: automixParams(), handleSec: headroom, output: outputMode, outputFormat: "auto" },
-            (evt) => {
-                if (evt.event === "phase") {
-                    setBusy((evt.id ? evt.id + " — " : "") + evt.phase + "…", true);
-                } else if (evt.event === "automix") {
-                    // spreadMs is the diagnostic that matters on real material:
-                    // it is how much the arrival-time difference between two
-                    // mics actually moves as people speak. A pair that barely
-                    // spreads has no geometry to read a speaker from, and the
-                    // result will be a flat, unducked curve — so this is logged
-                    // whether or not the pair was rejected.
-                    for (const pr of evt.pairs) {
-                        const line = `${pr.micA} / ${pr.micB}: offset ${pr.syncMs.toFixed(1)}ms, ` +
-                            `spread ${pr.spreadMs.toFixed(2)}ms`;
-                        if (!pr.usable) log(`${line} — no usable geometry (${pr.reason}), ignored`, "warn");
-                        // A spread filling most of the +/-30ms search window is
-                        // not 10 metres of room, it is the correlation failing
-                        // and returning near-random lags. Real people in a real
-                        // room sit in single-digit milliseconds.
-                        else if (pr.spreadMs > 20) {
-                            log(`${line} — implausibly wide; these two probably do not share a room`, "warn");
-                        } else log(line);
-                    }
-                    log(`Timing signal ${evt.meanLead.toFixed(3)} (0 = none, 1 = decisive), ` +
-                        `evidence gap ${evt.meanEvidenceGapDb.toFixed(1)} dB, ` +
-                        `${(evt.activeFraction * 100).toFixed(0)}% of the take active`);
-                    // The two factors of `activity`. Either one near zero zeroes
-                    // every gain no matter how good the geometry is.
-                    log(`  coherence ${evt.meanCoherence.toFixed(3)} ` +
-                        `(raw ${(evt.meanRawCoherence || 0).toFixed(3)}), ` +
-                        `level activity ${evt.meanLevelActivity.toFixed(3)}`);
-                    if ((evt.meanRawCoherence || 0) > 0.3 && evt.meanCoherence < 0.1) {
-                        log("  The mics correlated fine — the pairs were discounted for " +
-                            "implausible geometry. Over a long take with people moving, that " +
-                            "discount may be too harsh.", "warn");
-                    }
-                    for (const m of evt.micLead) {
-                        log(`  ${m.id}: lead ${m.meanAbsLead.toFixed(3)}, ` +
-                            `p95 ${m.refDb.toFixed(1)} dBFS, gate ${m.gateDb.toFixed(1)} dBFS`);
-                    }
-                    if (evt.cluster) {
-                        log(evt.cluster.usable
-                            ? `  Grouped into ${evt.cluster.clusters} speaker positions ` +
-                              `(separation ${evt.cluster.quality.toFixed(2)}, agreement ${evt.cluster.agreement.toFixed(2)})`
-                            : `  Speaker grouping stood down — separation ${(evt.cluster.quality || 0).toFixed(2)}, ` +
-                              `agreement ${(evt.cluster.agreement || 0).toFixed(2)}; falling back to per-frame scoring`);
-                    }
-                    state.lastAutoMixSummary = evt;
-                } else if (evt.event === "result" && evt.status === "failed") {
-                    log(`${evt.id}: ${evt.reason}`, "error");
-                }
-            });
-    } catch (err) {
-        finish(String((err && err.message) || err), "error");
-        return;
-    }
-
-    const good = result.results.filter((r) => r.status === "ok");
-    if (!good.length) {
-        finish("Auto-Mix produced nothing", "error");
-        return;
-    }
-
-    const byId = {};
-    for (const m of mics) byId[m.id] = m;
-
-    if (outputMode === "render") {
-        // Placed exactly the way Align places its output: a new track per
-        // participant, at the same timeline position, originals left alone.
-        // Nothing is muted — auto-mix produces an alternative mix of the same
-        // material, not a replacement for it.
-        setBusy("Placing ducked audio…", false);
-        const baseTrackCount = state.seqInfo.audioTracks.length;
-        const place = await premiere.importAndPlace({
-            items: good.map((r, i) => ({
-                id: r.id,
-                path: r.outputPath,
-                fileName: r.outputPath.split(/[\\/]/).pop(),
-                trackIndex: baseTrackCount + i,
-                startSeconds: from,
-                muteNodeId: null
-            }))
-        });
-        if (place.ok === false && place.error) {
-            finish("Placing: " + place.error, "error");
-            return;
-        }
-        let placed = 0;
-        for (const r of (place.results || [])) {
-            if (r.ok) placed++;
-            else log(`${r.id}: ${r.error}`, "error");
-        }
-        for (const r of good) {
-            log(`${r.id}: speaking ${(r.winnerFraction * 100).toFixed(0)}% of the time, ` +
-                `mean ${r.meanDuckDb.toFixed(1)} dB`);
-        }
-        finish(placed
-            ? `Auto-Mix done — ${placed} ducked track(s) placed.`
-            : "Auto-Mix rendered but nothing could be placed.", placed ? "success" : "error");
-        return;
-    }
-
-    setBusy("Writing keyframes…", false);
-    const write = await premiere.writeVolumeKeyframes({
-        items: good.map((r) => ({
-            id: r.id,
-            trackIndex: byId[r.id].trackIndex,
-            clipIndex: byId[r.id].clipIndex,
-            sourceStartSec: byId[r.id].sourceStartSec,
-            keys: r.keys
-        }))
-    });
-
-    if (write.ok === false && write.error) {
-        finish("Keyframes: " + write.error, "error");
-        return;
-    }
-    let written = 0;
-    for (const r of (write.results || [])) {
-        if (r.ok) { written++; log(`${r.id}: ${r.written} keyframes via ${r.chose || "?"}`); }
-        else {
-            log(`${r.id}: ${r.error}${r.chose ? " (chose " + r.chose + ")" : ""}`, "error");
-            if (r.trace) log(`  chain: ${r.trace}`, "warn");
-        }
-    }
-    let flat = 0;
-    for (const r of good) {
-        log(`${r.id}: speaking ${(r.winnerFraction * 100).toFixed(0)}% of the time, ` +
-            `mean ${r.meanDuckDb.toFixed(1)} dB` +
-            (r.matchGainDb ? `, level ${r.matchGainDb > 0 ? "+" : ""}${r.matchGainDb.toFixed(1)} dB` : "") +
-            (typeof r.outLufs === "number" ? ` → ${r.outLufs.toFixed(1)} LUFS` : "") +
-            (r.keys ? ` over ${r.keys.length} keyframes` : ""));
-        // A target that could not be reached is worth saying out loud: the
-        // number in the panel is then not the number on the timeline.
-        if (r.matchClamp === "headroom") {
-            log(`  ${r.id} stopped short of the target — any more gain would risk clipping the source.`, "warn");
-        } else if (r.matchClamp === "range") {
-            log(`  ${r.id} stopped short of the target — it is more than 18 dB from where it needs to be, ` +
-                `which usually means the recorder trim was wrong rather than the take.`, "warn");
-        } else if (r.matchClamp === "unmeasured") {
-            log(`  ${r.id} was left at its recorded level — nothing on it was identified as its own wearer ` +
-                `speaking, so any correction would be measuring the other mics bleeding in.`, "warn");
-        }
-        if (Math.abs(r.meanDuckDb) < 0.1) flat++;
-    }
-    if (flat === good.length) {
-        // Say which of the two cues failed, rather than making it a guessing game.
-        const s = state.lastAutoMixSummary || {};
-        const noTiming = (s.meanLead || 0) < 0.15;
-        const noLevel = Math.abs(s.meanEvidenceGapDb || 0) < 2;
-        let why;
-        if (noTiming && noLevel) {
-            why = "neither cue separated the mics: arrival time gave nothing and the levels are " +
-                "near-identical. That is what three tracks carrying the same audio looks like — " +
-                "check Sources, and check these really are three different mics.";
-        } else if (noTiming) {
-            why = "arrival time gave no usable signal, so only level was left to go on. Look at the " +
-                "pair spreads above — a spread over about 20ms means the correlation failed rather " +
-                "than that the mics are far apart.";
-        } else {
-            why = "the mics are too alike in level for one to win, even though the timing looked " +
-                "usable. If one track is a mixdown or a room mic, it will do this.";
-        }
-        log("Every curve came out flat — nothing was ducked. " + why, "warn");
-    }
-    finish(written
-        ? `Auto-Mix done — ${written} of ${good.length} track(s) keyframed.`
-        : "Auto-Mix finished but no keyframes were written.", written ? "success" : "error");
+// Flash a result on the button that was pressed, then put its label back.
+function flashButton(btn, label, restore) {
+    if (!btn) return;
+    btn.textContent = label;
+    setTimeout(() => { btn.textContent = restore; }, 1600);
 }
 
 /**
- * Copy the whole log to the clipboard.
+ * Write the whole log to a .txt file — the same as Syncitol's Export.
  *
- * The log panel is not selectable in UXP, so without this a diagnostic dump can
- * be read on screen and nowhere else — which is exactly when you most need to
- * send it to someone. Three routes are tried because which one a given UXP
- * build supports is not knowable up front; the last one always works, because
- * writing a file needs no clipboard permission at all.
+ * The log is the record of a run, and a file is the only reliable way to get it
+ * out of the panel: UXP's clipboard needs a manifest permission and is missing
+ * from some builds, and the log cannot be selected with the mouse because UXP
+ * only supports text selection inside form controls. The save dialog is the
+ * normal path; a build with no picker falls back to the plugin's data folder
+ * and logs the full path so the file can still be found.
  */
-async function copyLog() {
-    const lines = Array.prototype.slice.call($("log").querySelectorAll("div"))
+const EXPORT_LABEL = "⬇ Export .txt";
+async function exportLog() {
+    const btn = $("btn-export-log");
+    const text = Array.prototype.slice.call($("log").querySelectorAll("div"))
         .map((d) => d.textContent).join("\n");
-    if (!lines) { log("Nothing in the log to copy."); return; }
-
+    if (!text) { flashButton(btn, "Log is empty", EXPORT_LABEL); return; }
+    const fileName = `unphased-log-${stamp()}.txt`;
     try {
-        const uxp = require("uxp");
-        if (uxp && uxp.clipboard && typeof uxp.clipboard.setContent === "function") {
-            await uxp.clipboard.setContent({ "text/plain": lines });
-            log(`Log copied — ${lines.split("\n").length} lines.`, "success");
-            return;
+        const lfs = require("uxp").storage.localFileSystem;
+        let file = null;
+        if (typeof lfs.getFileForSaving === "function") {
+            // Resolves to null when the dialog is cancelled — not an error.
+            file = await lfs.getFileForSaving(fileName, { types: ["txt"] });
+            if (!file) { flashButton(btn, "Cancelled", EXPORT_LABEL); return; }
+        } else {
+            const folder = await lfs.getDataFolder();
+            file = await folder.createFile(fileName, { overwrite: true });
         }
-    } catch (e) { /* try the next route */ }
-
-    try {
-        if (typeof navigator !== "undefined" && navigator.clipboard) {
-            await navigator.clipboard.writeText(lines);
-            log(`Log copied — ${lines.split("\n").length} lines.`, "success");
-            return;
-        }
-    } catch (e) { /* fall through to a file */ }
-
-    try {
-        const fs = require("uxp").storage.localFileSystem;
-        const folder = await fs.getTemporaryFolder();
-        const file = await folder.createFile("unphased-log.txt", { overwrite: true });
-        await file.write(lines);
-        log(`Clipboard unavailable — log written to ${file.nativePath}`, "success");
+        await file.write(text);
+        flashButton(btn, "✓ Saved", EXPORT_LABEL);
+        log(`Log written to ${file.nativePath || fileName}`, "success");
     } catch (e) {
-        log("Could not copy the log: " + String((e && e.message) || e), "error");
+        flashButton(btn, "✗ Failed", EXPORT_LABEL);
+        log("Could not write the log file: " + String((e && e.message) || e), "error");
     }
 }
 
@@ -1075,8 +790,10 @@ async function runAlign() {
     if (state.running) return;
     const startedAt = Date.now();
     if (!(await checkAddon())) {
-        log("The bundled audio decoder is not available — this build cannot decode media. " +
-            "Reinstall the plugin, and check you are on Premiere Pro 26.0 or newer.", "error");
+        logAddonUnavailable(audio.isMac()
+            ? "The bundled audio decoder is not available, so nothing can be aligned yet."
+            : "The bundled audio decoder is not available — this build cannot decode media. " +
+              "Reinstall the plugin, and check you are on Premiere Pro 26.0 or newer.");
         return;
     }
     if (!(await refresh())) return;
@@ -1085,9 +802,12 @@ async function runAlign() {
     // track — a sequence that gained or lost tracks since the button was
     // enabled. Carrying on regardless is what produced the useless "reference
     // track missing" from deep inside pairing.js.
+    // The button only looks disabled (it is a div), so a click with no REF
+    // lands here too. Say which case it is: never set, or lost to an edit.
     if (state.refTrack === null) {
-        log("The reference track is gone — the sequence changed since you set it. " +
-            "Click a track to set REF again.", "error");
+        log(state.refLost
+            ? "The reference track is gone — the sequence changed since you set it. Click a track to set REF again."
+            : "No reference track yet — click a track in the list to make it REF, then Align.", "error");
         updateAlignButton();
         return;
     }
@@ -1155,6 +875,7 @@ async function runAlign() {
     const baseTrackCount = allTracks.length - reuse;
 
     log(`Aligning ${pr.pairs.length} segment(s) from ${distinctTargets.length} track(s)`);
+    logDecodeSetup();
 
     const tr = await premiere.ensureTracks({ total: baseTrackCount + distinctTargets.length });
     if (!tr.ok) { finish(tr.error, "error"); return; }
@@ -1185,6 +906,7 @@ async function runAlign() {
     setBusy("Aligning…", true);
 
     let out;
+    const jobStartedAt = Date.now();
     try {
         out = await runner.runJob(job, (evt) => {
             if (evt.event === "phase") {
@@ -1195,15 +917,12 @@ async function runAlign() {
                 if (evt.status === "failed") {
                     log(`${labelById[evt.id] || evt.id}: ${evt.reason || "failed"}`, "error");
                 } else {
-                    // Report a widened search: with the control gone, this is the only
-                    // visible sign that the sources started far apart.
-                    const widened = evt.searchWindowMs > 250
-                        ? ", search widened to ±" + (evt.searchWindowMs >= 1000
-                            ? (evt.searchWindowMs / 1000) + " s" : evt.searchWindowMs + " ms")
-                        : "";
+                    // No "search widened" note: on auto the search always spans
+                    // ±2 s, so it said the same thing on every run. The delay
+                    // itself shows how far apart the sources started.
                     log(`${labelById[evt.id] || evt.id}: ${fmtMs(evt.staticDelayMs)} ms, null ` +
                         `${evt.nullDepthDb.toFixed(0)} dB` +
-                        (evt.polarityInverted ? ", polarity inverted" : "") + widened);
+                        (evt.polarityInverted ? ", polarity inverted" : ""));
                 }
             }
         });
@@ -1212,6 +931,8 @@ async function runAlign() {
         return;
     }
 
+    const jobMs = Date.now() - jobStartedAt;
+    logDecodeTime();
     const rows = out.results.map((r) => { r.label = labelById[r.id] || r.id; return r; });
     if (out.cancelled) {
         renderResults(rows);
@@ -1240,7 +961,9 @@ async function runAlign() {
         };
     });
 
+    const placeStartedAt = Date.now();
     const res = await premiere.importAndPlace({ items });
+    logRunTime(out.results, jobMs, Date.now() - placeStartedAt);
     if (!res.ok) {
         renderResults(rows);
         finish("Import/placement failed: " + res.error, "error");
@@ -1302,27 +1025,11 @@ function boot() {
         else localStorage.removeItem(RENDER_DIR_KEY);
     });
 
-    bindSegment("param-automix-output", "automixOutput");
-    // The target only means anything in 'target' mode, so it is dimmed rather
-    // than removed in the other two — a control that vanishes is a control the
-    // operator has to go looking for.
-    const paintTarget = () => {
-        const el = $("param-targetlufs");
-        if (el) el.style.opacity = state.params.levelMatch === "target" ? "1" : "0.4";
-    };
-    bindSegment("param-levelmatch", "levelMatch", paintTarget);
-    bindStepper("param-targetlufs", "targetLufs", AUTOMIX_RANGE.targetLufs);
-    paintTarget();
-    bindStepper("param-duck", "duck", AUTOMIX_RANGE.duck, (v) => {
-        if (v >= 24) log(`Duck depth ${v} dB is very deep — listen for room tone pumping under the ducked mics.`, "warn");
-    });
-    bindStepper("param-release", "release", AUTOMIX_RANGE.release);
     bindSegment("param-mode", "mode");
     bindSegment("param-phase", "phase");
 
     $("btn-refresh").addEventListener("click", guard(refresh));
     $("btn-align").addEventListener("click", guard(runAlign));
-    $("btn-automix").addEventListener("click", guard(runAutoMix));
     $("btn-sources").addEventListener("click", guard(() => {
         state.showSources = !state.showSources;
         updateSourcesToggle();
@@ -1335,7 +1042,7 @@ function boot() {
         log("Cancelling — waiting for the current segment to stop", "warn");
     }));
     $("btn-clear-log").addEventListener("click", () => { $("log").innerHTML = ""; });
-    $("btn-copy-log").addEventListener("click", guard(copyLog));
+    $("btn-export-log").addEventListener("click", guard(exportLog));
     $("btn-clear-results").addEventListener("click", () => { renderResults([]); renderWarnings([]); });
     $("btn-instructions").addEventListener("click", () => $("instructions-panel").classList.add("visible"));
     $("btn-instructions-close").addEventListener("click", () => $("instructions-panel").classList.remove("visible"));
@@ -1388,10 +1095,16 @@ function boot() {
         if (!ok) {
             const el = $("boot-error");
             show(el, true);
-            el.textContent = "The bundled audio decoder failed to load — alignment is unavailable. " +
-                "See the log for the loader's own message.";
+            el.textContent = audio.isMac()
+                ? "The bundled audio decoder was blocked or failed to load — alignment is unavailable. " +
+                  audio.MAC_UNBLOCK_HINT
+                : "The bundled audio decoder failed to load — alignment is unavailable. " +
+                  "See the log for the loader's own message.";
+            log(state.addonError || "The bundled audio decoder failed to load.", "error");
         }
-        log("Panel ready");
+        // The footer carries the version (set-version.js keeps it current), so a
+        // log sent in always says which build produced it.
+        log(`Panel ready — ${($("version") && $("version").textContent) || "Unphased"}`);
         return guard(refresh)({ quiet: true });
     }).then(() => {
         // Start the active-sequence poll once the initial scan has settled,

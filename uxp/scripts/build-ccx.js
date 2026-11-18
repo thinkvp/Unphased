@@ -4,7 +4,7 @@
 //
 // Stages ONLY what the plugin needs at runtime:
 //   manifest.json, index.html, css/, fonts/,
-//   js/{main,audio,runner,premiere,pairing,volume,automixRunner}.js, js/engine/*.js,
+//   js/{main,audio,runner,premiere,pairing}.js, js/engine/*.js,
 //   win/x64/unphased.uxpaddon, mac/*/unphased.uxpaddon
 // Explicitly NOT staged: native/ (sources and any FFmpeg build tree), tests/,
 // scripts/, node_modules/, docs. Syncitol once shipped a whole shared FFmpeg
@@ -43,7 +43,7 @@ function copy(rel) {
 copy("manifest.json");
 copy("index.html");
 copy("css/panel.css");
-for (const f of ["main.js", "audio.js", "runner.js", "premiere.js", "pairing.js", "volume.js", "automixRunner.js"]) copy(`js/${f}`);
+for (const f of ["main.js", "audio.js", "runner.js", "premiere.js", "pairing.js"]) copy(`js/${f}`);
 for (const f of fs.readdirSync(path.join(ROOT, "js", "engine"))) copy(`js/engine/${f}`);
 for (const f of fs.readdirSync(path.join(ROOT, "fonts"))) copy(`fonts/${f}`);
 

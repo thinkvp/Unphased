@@ -67,6 +67,59 @@ export function nullDepthDb(ref, aligned) {
 }
 
 /**
+ * Null depth as a listener would judge it: nullDepthDb over short windows, each
+ * with its own gain, and the median of the windows that carry sound.
+ *
+ * One gain for a whole clip is the wrong yardstick for a long take. The level
+ * ratio between a lav and a camera mic moves as people turn, lean and walk, so
+ * no single gain cancels well throughout, and a 43-minute interview measured
+ * that way read 1-2 dB while every 2-second stretch of it nulled 3-7 dB, with
+ * the timing exact to 0.1 ms. Per-window gain removes that, and nothing else:
+ * a window that is out of time or inverted still cannot cancel, because the
+ * gain stays clamped non-negative. The median keeps a few odd stretches (a
+ * cough on one mic, a door) from deciding the number.
+ *
+ * Quiet windows are skipped: room tone on two mics is uncorrelated noise and
+ * would pull the median towards 0 dB on material with long pauses. "Quiet" is
+ * relative to the clip's own loud windows, so a recording made low still
+ * counts. A clip shorter than two windows falls back to the whole-clip figure.
+ */
+export function windowedNullDepthDb(ref, aligned, { sampleRate, windowSec = 2, quietDb = 30 } = {}) {
+  const n = Math.min(ref.length, aligned.length);
+  const w = Math.max(1, Math.round(windowSec * sampleRate));
+  const count = Math.floor(n / w);
+  if (count < 2) return nullDepthDb(ref, aligned);
+  const energy = new Float64Array(count);
+  const depth = new Float64Array(count);
+  for (let k = 0; k < count; k++) {
+    let dot = 0, ea = 0, er = 0;
+    const a0 = k * w;
+    for (let i = a0; i < a0 + w; i++) {
+      dot += ref[i] * aligned[i];
+      ea += aligned[i] * aligned[i];
+      er += ref[i] * ref[i];
+    }
+    energy[k] = er;
+    if (ea === 0 || er === 0) { depth[k] = 0; continue; }
+    const g = Math.max(0, dot / ea);
+    // |r - g a|^2 = er - 2 g dot + g^2 ea, without a second pass
+    const res = Math.max(er - 2 * g * dot + g * g * ea, er * 1e-12);
+    depth[k] = 10 * Math.log10(er / res);
+  }
+  // Loud reference: the 90th-percentile window, so one clap cannot set it.
+  const sorted = Float64Array.from(energy).sort();
+  const loud = sorted[Math.floor(0.9 * (count - 1))];
+  if (!(loud > 0)) return nullDepthDb(ref, aligned);
+  const floor = loud * Math.pow(10, -quietDb / 10);
+  const kept = [];
+  for (let k = 0; k < count; k++) if (energy[k] >= floor) kept.push(depth[k]);
+  if (!kept.length) return nullDepthDb(ref, aligned);
+  kept.sort((x, y) => x - y);
+  const m = kept.length >> 1;
+  return kept.length % 2 ? kept[m] : (kept[m - 1] + kept[m]) / 2;
+}
+
+/**
  * Apply a correction produced by alignPair to one channel of audio, at a
  * possibly different sample rate. The delay curve is in analysis-rate samples,
  * so both its values and its time axis are scaled by rateScale.
@@ -283,7 +336,11 @@ export function alignPair({ ref, tgt, sampleRate, params = {}, tgtOffsetSamples 
     confidence: coarse.confidence,
     searchWindowMs,
     meanCoherence,
-    nullDepthDb: nullDepthDb(ref, aligned),
+    // The headline figure: median over 2-second windows (see
+    // windowedNullDepthDb). The single-gain whole-clip figure is kept for
+    // comparison; on a long take with moving talkers it reads far lower.
+    nullDepthDb: windowedNullDepthDb(ref, aligned, { sampleRate }),
+    nullDepthWholeDb: nullDepthDb(ref, aligned),
     refRmsDb: 20 * Math.log10(rmsOf(ref) + 1e-30),
   };
   return {
